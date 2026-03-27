@@ -171,6 +171,7 @@ describe("Architecture pipeline", () => {
 
     const context = await runtime2.memoryManager.getContext("下一步是什么");
     expect(context.blocks.length).toBeGreaterThan(0);
+    expect(context.blocks.some((block) => (block.tags ?? []).length > 0)).toBe(true);
 
     const db = new DatabaseSync(sqliteFile);
     const blockCount = (db.prepare("SELECT COUNT(*) AS count FROM blocks").get() as { count: number })

@@ -1,4 +1,4 @@
-import type { BlockId, MemoryEvent, RetentionMode } from "../types.js";
+import type { BlockId, BlockTag, MemoryEvent, RetentionMode } from "../types.js";
 import { estimateTokens } from "../utils/text.js";
 
 export class MemoryBlock {
@@ -13,6 +13,7 @@ export class MemoryBlock {
   public retentionMode: RetentionMode;
   public matchScore: number;
   public conflict: boolean;
+  public tags: BlockTag[];
 
   constructor(id: BlockId, startTime = Date.now()) {
     this.id = id;
@@ -26,6 +27,7 @@ export class MemoryBlock {
     this.retentionMode = "raw";
     this.matchScore = 0;
     this.conflict = false;
+    this.tags = ["normal"];
   }
 
   addEvent(event: MemoryEvent): void {

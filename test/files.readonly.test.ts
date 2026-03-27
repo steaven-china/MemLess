@@ -32,6 +32,7 @@ describe("ReadonlyFileService", () => {
     expect(result.bytes).toBe(4);
     expect(result.totalBytes).toBe(10);
     expect(result.truncated).toBe(true);
+    expect(typeof result.modifiedAt).toBe("number");
   });
 
   test("blocks path traversal outside root", async () => {

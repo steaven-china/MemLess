@@ -35,6 +35,7 @@ export class GraphRetriever implements IBlockRetriever {
     const normalizer = maxScore > 0 ? maxScore : 1;
     const hits: RetrievalHit[] = [];
     for (const [blockId, rawScore] of scoreMap.entries()) {
+      if (!isBlockNodeId(blockId)) continue;
       const block = await this.blockStore.get(blockId);
       if (!block) continue;
       hits.push({
@@ -148,5 +149,11 @@ function defaultConfidence(type: RelationType): number {
   if (type === RelationType.CAUSES) return 0.75;
   if (type === RelationType.PARENT_TASK || type === RelationType.CHILD_TASK) return 0.7;
   if (type === RelationType.ALTERNATIVE) return 0.6;
+  if (type === RelationType.SNAPSHOT_OF_FILE) return 0.58;
+  if (type === RelationType.FILE_MENTIONS_BLOCK) return 0.57;
   return 0.55;
+}
+
+function isBlockNodeId(nodeId: string): boolean {
+  return !nodeId.startsWith("file:") && !nodeId.startsWith("snapshot:");
 }

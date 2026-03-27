@@ -1,7 +1,7 @@
-import type { ChatMessage, ILLMProvider } from "./LLMProvider.js";
+import type { ChatMessage, ILLMProvider, LlmGenerateOptions } from "./LLMProvider.js";
 
 export class RuleBasedProvider implements ILLMProvider {
-  async generate(messages: ChatMessage[]): Promise<string> {
+  async generate(messages: ChatMessage[], _options?: LlmGenerateOptions): Promise<string> {
     const user = [...messages].reverse().find((message) => message.role === "user");
     const contextMessage = messages.find((message) => message.role === "system");
     const contextSnippet = contextMessage?.content.split("=== RECENT EVENTS ===")[0] ?? "";
@@ -19,7 +19,7 @@ export class RuleBasedProvider implements ILLMProvider {
         .filter((line) => line.startsWith("#"))
         .slice(0, 3)
         .join("\n"),
-      "如果你配置 `OPENAI_API_KEY` 并使用 `--provider openai`，我会输出更完整的推理答案。"
+      "如果你配置 `OPENAI_API_KEY`（或 `DEEPSEEK_API_KEY`）并使用 `--provider openai|deepseek-reasoner`，我会输出更完整的推理答案。"
     ].join("\n");
   }
 }

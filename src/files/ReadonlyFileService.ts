@@ -20,6 +20,7 @@ export interface ReadFileResult {
   bytes: number;
   totalBytes: number;
   truncated: boolean;
+  modifiedAt?: number;
 }
 
 export class ReadonlyFileService {
@@ -98,7 +99,8 @@ export class ReadonlyFileService {
       text: payload.toString("utf8"),
       bytes: payload.byteLength,
       totalBytes: content.byteLength,
-      truncated
+      truncated,
+      modifiedAt: stat.mtimeMs
     };
   }
 

@@ -20,6 +20,7 @@ type SerializedBlock = {
   retentionMode: MemoryBlock["retentionMode"];
   matchScore: MemoryBlock["matchScore"];
   conflict: MemoryBlock["conflict"];
+  tags?: MemoryBlock["tags"];
 };
 
 export class LanceBlockStore implements IBlockStore {
@@ -69,6 +70,7 @@ export class LanceBlockStore implements IBlockStore {
         block.retentionMode = item.retentionMode ?? "raw";
         block.matchScore = item.matchScore ?? 0;
         block.conflict = item.conflict ?? false;
+        block.tags = normalizeTags(item.tags);
         this.table.set(block.id, block);
       }
     } catch (error) {
@@ -91,8 +93,21 @@ export class LanceBlockStore implements IBlockStore {
       rawEvents: block.rawEvents,
       retentionMode: block.retentionMode,
       matchScore: block.matchScore,
-      conflict: block.conflict
+      conflict: block.conflict,
+      tags: normalizeTags(block.tags)
     }));
     await writeJsonAtomic(this.config.filePath, serialized);
   }
+}
+
+function normalizeTags(tags: string[] | undefined): Array<"important" | "normal"> {
+  const output: Array<"important" | "normal"> = [];
+  for (const tag of tags ?? []) {
+    if ((tag === "important" || tag === "normal") && !output.includes(tag)) {
+      output.push(tag);
+    }
+  }
+  if (output.includes("important")) return ["important"];
+  if (output.includes("normal")) return ["normal"];
+  return ["normal"];
 }

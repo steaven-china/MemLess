@@ -51,4 +51,45 @@ describe("GraphRetriever", () => {
     expect(hits[0]?.score).toBeGreaterThan(hits[1]?.score ?? 0);
     expect(hits[0]?.score).toBeCloseTo(1, 6);
   });
+
+  test("ignores file nodes in graph hits", async () => {
+    const graph = new RelationGraph();
+    const relationStore = new InMemoryRelationStore();
+    const blockStore = new InMemoryBlockStore();
+    const retriever = new GraphRetriever(graph, relationStore, blockStore);
+
+    blockStore.upsert(new MemoryBlock("seed"));
+    blockStore.upsert(new MemoryBlock("b"));
+
+    graph.addRelation("seed", "file:README.md", RelationType.FILE_MENTIONS_BLOCK);
+    graph.addRelation("seed", "b", RelationType.CONTEXT);
+
+    relationStore.add({
+      src: "seed",
+      dst: "file:README.md",
+      type: RelationType.FILE_MENTIONS_BLOCK,
+      timestamp: Date.now(),
+      confidence: 0.9
+    });
+    relationStore.add({
+      src: "seed",
+      dst: "b",
+      type: RelationType.CONTEXT,
+      timestamp: Date.now(),
+      confidence: 0.6
+    });
+
+    const hits = await retriever.retrieve({
+      query: "context",
+      keywords: [],
+      embedding: [],
+      topK: 10,
+      seedBlockIds: ["seed"],
+      direction: "outgoing",
+      relationTypes: [RelationType.FILE_MENTIONS_BLOCK, RelationType.CONTEXT],
+      depth: 1
+    });
+
+    expect(hits.map((hit) => hit.blockId)).toEqual(["b"]);
+  });
 });

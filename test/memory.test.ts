@@ -46,6 +46,78 @@ describe("PartitionMemoryManager", () => {
     expect(context.formatted).toContain("RETRIEVED BLOCKS");
   });
 
+  test("keeps recentEvents across sealed blocks", async () => {
+    const runtime = createRuntime({
+      manager: {
+        recentEventWindow: 3,
+        maxTokensPerBlock: 9999,
+        proactiveSealEnabled: false
+      },
+      component: {
+        chunkStrategy: "fixed"
+      }
+    });
+
+    const now = Date.now();
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "第一条",
+      timestamp: now
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "assistant",
+      text: "第二条",
+      timestamp: now + 1
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "第三条",
+      timestamp: now + 2
+    });
+
+    const context = await runtime.memoryManager.getContext("第三条");
+    expect(context.recentEvents.map((event) => event.text)).toEqual(["第一条", "第二条", "第三条"]);
+    expect(context.proactiveSignal?.timerEnabled).toBe(false);
+    expect(context.proactiveSignal?.triggerSource).toBe("user");
+  });
+
+  test("marks proactive signal triggerSource as timer on timer tick", async () => {
+    const runtime = createRuntime({
+      manager: {
+        proactiveWakeupEnabled: true,
+        predictionEnabled: true,
+        proactiveTimerEnabled: true,
+        proactiveTimerIntervalSeconds: 15
+      },
+      component: {
+        chunkStrategy: "fixed"
+      }
+    });
+
+    const now = Date.now();
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "支付重试问题",
+      timestamp: now
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+
+    await runtime.memoryManager.tickProactiveWakeup();
+    const context = await runtime.memoryManager.getContext("继续", "timer");
+
+    expect(context.proactiveSignal?.triggerSource).toBe("timer");
+    expect(context.proactiveSignal?.timerEnabled).toBe(true);
+    expect(context.proactiveSignal?.timerIntervalSeconds).toBe(15);
+  });
+
   test("supports relation graph traversal for directional query", async () => {
     const runtime = createRuntime({
       manager: {

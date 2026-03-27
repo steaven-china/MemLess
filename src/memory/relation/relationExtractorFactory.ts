@@ -1,10 +1,22 @@
 import type { AppConfig } from "../../config.js";
+import type { IDebugTraceRecorder } from "../../debug/DebugTraceRecorder.js";
 import { DeepSeekRelationExtractor } from "./DeepSeekRelationExtractor.js";
+import type { LLMFallbackDetails } from "./LLMRelationExtractor.js";
 import { OpenAIRelationExtractor } from "./OpenAIRelationExtractor.js";
 import { HeuristicRelationExtractor } from "./RelationExtractor.js";
 import type { IRelationExtractor } from "./RelationExtractor.js";
 
-export function buildRelationExtractor(config: AppConfig): IRelationExtractor {
+export function buildRelationExtractor(
+  config: AppConfig,
+  traceRecorder?: IDebugTraceRecorder
+): IRelationExtractor {
+  const recordFallback = (provider: "openai" | "deepseek", details: LLMFallbackDetails): void => {
+    traceRecorder?.record("relation", `${provider}.fallback`, details);
+    console.warn(
+      `[relation-extractor:${provider}] fallback ${details.reason} block=${details.currentBlockId} neighbors=${details.neighborCount}`
+    );
+  };
+
   if (config.component.relationExtractor === "deepseek") {
     if (!config.service.deepseekApiKey) {
       throw new Error(
@@ -17,9 +29,7 @@ export function buildRelationExtractor(config: AppConfig): IRelationExtractor {
       model: config.component.relationModel || config.service.deepseekModel,
       timeoutMs: config.component.relationTimeoutMs,
       onFallback: (details) => {
-        console.warn(
-          `[relation-extractor:deepseek] fallback ${details.reason} block=${details.currentBlockId} neighbors=${details.neighborCount}`
-        );
+        recordFallback("deepseek", details);
       }
     });
   }
@@ -36,9 +46,7 @@ export function buildRelationExtractor(config: AppConfig): IRelationExtractor {
       model: config.component.relationModel,
       timeoutMs: config.component.relationTimeoutMs,
       onFallback: (details) => {
-        console.warn(
-          `[relation-extractor:openai] fallback ${details.reason} block=${details.currentBlockId} neighbors=${details.neighborCount}`
-        );
+        recordFallback("openai", details);
       }
     });
   }

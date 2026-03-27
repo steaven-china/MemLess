@@ -30,6 +30,8 @@ class MemoryManagerStub implements IMemoryManager {
   async getContext(_query: string): Promise<Context> {
     return this.context;
   }
+
+  async tickProactiveWakeup(): Promise<void> {}
 }
 
 describe("Agent introduction injection", () => {

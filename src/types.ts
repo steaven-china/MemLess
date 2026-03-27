@@ -12,13 +12,17 @@ export interface MemoryEvent {
 
 export type RetentionMode = "compressed" | "raw" | "conflict";
 
+export type BlockTag = "important" | "normal";
+
 export enum RelationType {
   CAUSES = "CAUSES",
   FOLLOWS = "FOLLOWS",
   PARENT_TASK = "PARENT_TASK",
   CHILD_TASK = "CHILD_TASK",
   ALTERNATIVE = "ALTERNATIVE",
-  CONTEXT = "CONTEXT"
+  CONTEXT = "CONTEXT",
+  SNAPSHOT_OF_FILE = "SNAPSHOT_OF_FILE",
+  FILE_MENTIONS_BLOCK = "FILE_MENTIONS_BLOCK"
 }
 
 export interface BlockRef {
@@ -29,6 +33,7 @@ export interface BlockRef {
   startTime: number;
   endTime: number;
   keywords: string[];
+  tags?: BlockTag[];
   rawEvents?: MemoryEvent[];
   retentionMode?: RetentionMode;
   matchScore?: number;
@@ -48,11 +53,39 @@ export interface PredictionResult {
   transitionProbabilities: Array<{ blockId: BlockId; probability: number }>;
 }
 
+export type ProactiveSignalMode = "inject" | "prefetch" | "none";
+
+export type ProactiveEvidenceNeed = "none" | "search_optional" | "search_required";
+
+export type ProactiveTriggerSource = "user" | "timer";
+
+export interface ProactiveSignal {
+  allowWakeup: boolean;
+  mode: ProactiveSignalMode;
+  intents: PredictedIntent[];
+  reason: string;
+  evidenceNeedHint: ProactiveEvidenceNeed;
+  triggerSource: ProactiveTriggerSource;
+  timerEnabled: boolean;
+  timerIntervalSeconds: number;
+}
+
+export type ProactiveAction = "noop" | "nudge_user" | "ask_followup" | "summarize";
+
+export interface ProactivePlan {
+  action: ProactiveAction;
+  shouldSearchEvidence: boolean;
+  searchQueries: string[];
+  messageSeed: string;
+  reason: string;
+}
+
 export interface Context {
   blocks: BlockRef[];
   recentEvents: MemoryEvent[];
   formatted: string;
   prediction?: PredictionResult;
+  proactiveSignal?: ProactiveSignal;
 }
 
 export type TraverseDirection = "incoming" | "outgoing" | "both";
@@ -63,7 +96,7 @@ export interface DirectionalIntent {
   depth: number;
 }
 
-export type SearchAugmentMode = "lazy" | "auto" | "scheduled";
+export type SearchAugmentMode = "lazy" | "auto" | "scheduled" | "predictive";
 
 export interface ManagerConfig {
   maxTokensPerBlock: number;
@@ -97,4 +130,10 @@ export interface ManagerConfig {
   searchAugmentMode: SearchAugmentMode;
   searchScheduleMinutes: number;
   searchTopK: number;
+  proactiveWakeupEnabled: boolean;
+  proactiveWakeupMinIntervalSeconds: number;
+  proactiveWakeupMaxPerHour: number;
+  proactiveWakeupRequireEvidence: boolean;
+  proactiveTimerEnabled: boolean;
+  proactiveTimerIntervalSeconds: number;
 }

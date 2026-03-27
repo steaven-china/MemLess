@@ -39,5 +39,9 @@ export function buildProvider(
     });
   }
 
-  return new RuleBasedProvider();
+  if (config.service.provider === "rule-based") {
+    return new RuleBasedProvider();
+  }
+
+  throw new Error(`Unsupported provider: ${String(config.service.provider)}`);
 }

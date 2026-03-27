@@ -26,6 +26,8 @@ describe("Web server", () => {
     expect(html).toContain("MLEX Minimal Web");
     expect(html).toContain("/trace-clear");
     expect(html).toContain("/api/debug/traces");
+    expect(html).toContain('replyText + "\\n\\n" + proactiveText');
+    expect(html).toContain('textSoFar + "\\n\\n" + proactive');
   });
 
   test("exposes web capabilities", async () => {
@@ -75,6 +77,7 @@ describe("Web server", () => {
     expect(response.status).toBe(200);
     const data = (await response.json()) as {
       reply?: string;
+      proactiveReply?: string | null;
       context?: string;
       blocks?: unknown[];
       prediction?: unknown;
@@ -83,6 +86,7 @@ describe("Web server", () => {
     expect(typeof data.reply).toBe("string");
     expect((data.reply ?? "").length).toBeGreaterThan(0);
     expect(typeof data.context).toBe("string");
+    expect(data.proactiveReply === null || typeof data.proactiveReply === "string").toBe(true);
     expect(Array.isArray(data.blocks)).toBe(true);
     expect(data.prediction === undefined || typeof data.prediction === "object").toBe(true);
     expect(typeof data.rawContext).toBe("object");

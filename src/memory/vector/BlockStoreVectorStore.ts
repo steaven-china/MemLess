@@ -3,39 +3,105 @@ import { cosineSimilarity } from "../../utils/text.js";
 import type { IBlockStore } from "../store/IBlockStore.js";
 import type { MemoryBlock } from "../MemoryBlock.js";
 import type { IVectorStore } from "./IVectorStore.js";
+import { AnnCosineIndex } from "./AnnCosineIndex.js";
 
 export class BlockStoreVectorStore implements IVectorStore {
+  private readonly blocks = new Map<string, MemoryBlock>();
+  private annIndex?: AnnCosineIndex;
+  private annDimension?: number;
+  private loaded = false;
+
   constructor(private readonly blockStore: IBlockStore) {}
 
-  async add(_block: MemoryBlock): Promise<void> {
-    return;
+  async add(block: MemoryBlock): Promise<void> {
+    this.blocks.set(block.id, block);
+    this.upsertAnn(block);
   }
 
-  async remove(_blockId: string): Promise<void> {
-    return;
+  async remove(blockId: string): Promise<void> {
+    this.blocks.delete(blockId);
+    this.annIndex?.remove(blockId);
   }
 
   async search(vector: number[], topK: number): Promise<BlockRef[]> {
-    const blocks = await this.blockStore.list();
-    const scored: BlockRef[] = [];
-    for (const block of blocks) {
-      if (block.embedding.length === 0 || block.embedding.length !== vector.length) continue;
-      const score = cosineSimilarity(vector, block.embedding);
-      scored.push({
-        id: block.id,
-        score,
-        source: "vector",
-        summary: block.summary,
-        startTime: block.startTime,
-        endTime: block.endTime,
-        keywords: block.keywords,
-        rawEvents: block.rawEvents,
-        retentionMode: block.retentionMode,
-        matchScore: block.matchScore,
-        conflict: block.conflict
+    if (topK <= 0) return [];
+    await this.ensureLoaded();
+
+    const scored: Array<{ block: MemoryBlock; score: number }> = [];
+    if (
+      this.annIndex &&
+      this.annDimension !== undefined &&
+      vector.length === this.annDimension
+    ) {
+      const annRefs = this.annIndex.search(vector, topK * 8, {
+        candidateMultiplier: 8
       });
+      for (const ref of annRefs) {
+        const block = this.blocks.get(ref.id);
+        if (!block) continue;
+        scored.push({ block, score: ref.score });
+      }
+
+      if (scored.length < topK) {
+        const seen = new Set(scored.map((item) => item.block.id));
+        for (const block of this.blocks.values()) {
+          if (seen.has(block.id)) continue;
+          if (block.embedding.length !== this.annDimension) continue;
+          scored.push({
+            block,
+            score: cosineSimilarity(vector, block.embedding)
+          });
+        }
+      }
+    } else {
+      for (const block of this.blocks.values()) {
+        if (block.embedding.length === 0 || block.embedding.length !== vector.length) continue;
+        scored.push({
+          block,
+          score: cosineSimilarity(vector, block.embedding)
+        });
+      }
     }
 
-    return scored.sort((left, right) => right.score - left.score).slice(0, topK);
+    scored.sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.block.id.localeCompare(right.block.id);
+    });
+
+    return scored.slice(0, topK).map(({ block, score }) => ({
+      id: block.id,
+      score,
+      source: "vector",
+      summary: block.summary,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      keywords: block.keywords,
+      rawEvents: block.rawEvents,
+      retentionMode: block.retentionMode,
+      matchScore: block.matchScore,
+      conflict: block.conflict
+    }));
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    if (this.loaded) return;
+    this.loaded = true;
+
+    const blocks = await this.blockStore.list();
+    for (const block of blocks) {
+      this.blocks.set(block.id, block);
+      this.upsertAnn(block);
+    }
+  }
+
+  private upsertAnn(block: MemoryBlock): void {
+    if (block.embedding.length === 0) return;
+
+    if (this.annDimension === undefined) {
+      this.annDimension = block.embedding.length;
+      this.annIndex = new AnnCosineIndex({ dimension: this.annDimension });
+    }
+    if (!this.annIndex || block.embedding.length !== this.annDimension) return;
+    this.annIndex.upsert(block.id, block.embedding);
   }
 }

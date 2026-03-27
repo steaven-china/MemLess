@@ -3,12 +3,18 @@ import type { MemoryBlock } from "../MemoryBlock.js";
 import { HeuristicRelationExtractor } from "./RelationExtractor.js";
 import type { ExtractedRelation, IRelationExtractor } from "./RelationExtractor.js";
 
+export interface LLMFallbackDetails {
+  reason: string;
+  currentBlockId: string;
+  neighborCount: number;
+}
+
 export interface LLMRelationExtractorConfig {
   apiKey: string;
   baseUrl?: string;
   model: string;
   timeoutMs?: number;
-  onFallback?: (details: { reason: string; currentBlockId: string; neighborCount: number }) => void;
+  onFallback?: (details: LLMFallbackDetails) => void;
 }
 
 export interface LLMRelationExtractorOptions {

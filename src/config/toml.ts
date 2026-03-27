@@ -1,0 +1,257 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+
+import { parse } from "smol-toml";
+
+import type { AppConfig, DeepPartial, EnvironmentConfig, ServiceConfig, ComponentConfig } from "../config.js";
+import type { ManagerConfig } from "../types.js";
+
+const DEFAULT_USER_CONFIG_PATH = path.join(homedir(), ".mlex", "config.toml");
+
+export interface LoadUserTomlConfigOptions {
+  filePath?: string;
+}
+
+export function loadUserTomlConfig(options: LoadUserTomlConfigOptions = {}): DeepPartial<AppConfig> {
+  const filePath = options.filePath ?? DEFAULT_USER_CONFIG_PATH;
+  if (!existsSync(filePath)) return {};
+
+  const source = readFileSync(filePath, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = parse(source);
+  } catch (error) {
+    throw new Error(`Failed to parse TOML config at ${filePath}: ${toErrorMessage(error)}`);
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error(`Invalid TOML config at ${filePath}: root must be a table.`);
+  }
+
+  return mapTomlToAppConfig(parsed, filePath);
+}
+
+function mapTomlToAppConfig(root: Record<string, unknown>, filePath: string): DeepPartial<AppConfig> {
+  const output: DeepPartial<AppConfig> = {};
+
+  if (root.environment !== undefined) {
+    output.environment = mapEnvironment(root.environment, filePath, "environment");
+  }
+  if (root.service !== undefined) {
+    output.service = mapService(root.service, filePath, "service");
+  }
+  if (root.manager !== undefined) {
+    output.manager = mapManager(root.manager, filePath, "manager");
+  }
+  if (root.component !== undefined) {
+    output.component = mapComponent(root.component, filePath, "component");
+  }
+
+  return output;
+}
+
+function mapEnvironment(
+  value: unknown,
+  filePath: string,
+  fieldPath: string
+): DeepPartial<EnvironmentConfig> {
+  const table = expectTable(value, filePath, fieldPath);
+  const output: DeepPartial<EnvironmentConfig> = {};
+
+  assignString(output, "nodeEnv", table.nodeEnv, filePath, `${fieldPath}.nodeEnv`);
+  assignString(output, "logLevel", table.logLevel, filePath, `${fieldPath}.logLevel`);
+
+  return output;
+}
+
+function mapService(value: unknown, filePath: string, fieldPath: string): DeepPartial<ServiceConfig> {
+  const table = expectTable(value, filePath, fieldPath);
+  const output: DeepPartial<ServiceConfig> = {};
+
+  assignString(output, "provider", table.provider, filePath, `${fieldPath}.provider`);
+  assignString(output, "openaiApiKey", table.openaiApiKey, filePath, `${fieldPath}.openaiApiKey`);
+  assignString(output, "openaiBaseUrl", table.openaiBaseUrl, filePath, `${fieldPath}.openaiBaseUrl`);
+  assignString(output, "openaiModel", table.openaiModel, filePath, `${fieldPath}.openaiModel`);
+  assignString(output, "deepseekApiKey", table.deepseekApiKey, filePath, `${fieldPath}.deepseekApiKey`);
+  assignString(output, "deepseekBaseUrl", table.deepseekBaseUrl, filePath, `${fieldPath}.deepseekBaseUrl`);
+  assignString(output, "deepseekModel", table.deepseekModel, filePath, `${fieldPath}.deepseekModel`);
+
+  return output;
+}
+
+function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPartial<ManagerConfig> {
+  const table = expectTable(value, filePath, fieldPath);
+  const output: DeepPartial<ManagerConfig> = {};
+
+  assignNumber(output, "maxTokensPerBlock", table.maxTokensPerBlock, filePath, `${fieldPath}.maxTokensPerBlock`);
+  assignNumber(output, "minTokensPerBlock", table.minTokensPerBlock, filePath, `${fieldPath}.minTokensPerBlock`);
+  assignBoolean(output, "proactiveSealEnabled", table.proactiveSealEnabled, filePath, `${fieldPath}.proactiveSealEnabled`);
+  assignNumber(output, "proactiveSealIdleSeconds", table.proactiveSealIdleSeconds, filePath, `${fieldPath}.proactiveSealIdleSeconds`);
+  assignBoolean(output, "proactiveSealTurnBoundary", table.proactiveSealTurnBoundary, filePath, `${fieldPath}.proactiveSealTurnBoundary`);
+  assignNumber(output, "proactiveSealMinTokens", table.proactiveSealMinTokens, filePath, `${fieldPath}.proactiveSealMinTokens`);
+  assignNumber(output, "recentEventWindow", table.recentEventWindow, filePath, `${fieldPath}.recentEventWindow`);
+  assignNumber(output, "semanticTopK", table.semanticTopK, filePath, `${fieldPath}.semanticTopK`);
+  assignNumber(output, "finalTopK", table.finalTopK, filePath, `${fieldPath}.finalTopK`);
+  assignBoolean(output, "enableRelationExpansion", table.enableRelationExpansion, filePath, `${fieldPath}.enableRelationExpansion`);
+  assignNumber(output, "relationDepth", table.relationDepth, filePath, `${fieldPath}.relationDepth`);
+  assignNumber(output, "graphExpansionTopK", table.graphExpansionTopK, filePath, `${fieldPath}.graphExpansionTopK`);
+  assignNumber(output, "keywordWeight", table.keywordWeight, filePath, `${fieldPath}.keywordWeight`);
+  assignNumber(output, "vectorWeight", table.vectorWeight, filePath, `${fieldPath}.vectorWeight`);
+  assignNumber(output, "graphWeight", table.graphWeight, filePath, `${fieldPath}.graphWeight`);
+  assignNumber(output, "vectorMinScore", table.vectorMinScore, filePath, `${fieldPath}.vectorMinScore`);
+  assignNumber(output, "compressionHighMatchThreshold", table.compressionHighMatchThreshold, filePath, `${fieldPath}.compressionHighMatchThreshold`);
+  assignNumber(output, "compressionLowMatchThreshold", table.compressionLowMatchThreshold, filePath, `${fieldPath}.compressionLowMatchThreshold`);
+  assignNumber(output, "compressionSoftBand", table.compressionSoftBand, filePath, `${fieldPath}.compressionSoftBand`);
+  assignNumber(output, "compressionPreserveWeight", table.compressionPreserveWeight, filePath, `${fieldPath}.compressionPreserveWeight`);
+  assignNumber(output, "compressionMinRawTokens", table.compressionMinRawTokens, filePath, `${fieldPath}.compressionMinRawTokens`);
+  assignBoolean(output, "conflictMarkerEnabled", table.conflictMarkerEnabled, filePath, `${fieldPath}.conflictMarkerEnabled`);
+  assignBoolean(output, "predictionEnabled", table.predictionEnabled, filePath, `${fieldPath}.predictionEnabled`);
+  assignNumber(output, "predictionTopK", table.predictionTopK, filePath, `${fieldPath}.predictionTopK`);
+  assignNumber(output, "predictionWalkDepth", table.predictionWalkDepth, filePath, `${fieldPath}.predictionWalkDepth`);
+  assignNumber(output, "predictionActiveThreshold", table.predictionActiveThreshold, filePath, `${fieldPath}.predictionActiveThreshold`);
+  assignNumber(output, "predictionTransitionDecay", table.predictionTransitionDecay, filePath, `${fieldPath}.predictionTransitionDecay`);
+  assignNumber(output, "predictionBoostWeight", table.predictionBoostWeight, filePath, `${fieldPath}.predictionBoostWeight`);
+  assignString(output, "searchAugmentMode", table.searchAugmentMode, filePath, `${fieldPath}.searchAugmentMode`);
+  assignNumber(output, "searchScheduleMinutes", table.searchScheduleMinutes, filePath, `${fieldPath}.searchScheduleMinutes`);
+  assignNumber(output, "searchTopK", table.searchTopK, filePath, `${fieldPath}.searchTopK`);
+  assignBoolean(output, "proactiveWakeupEnabled", table.proactiveWakeupEnabled, filePath, `${fieldPath}.proactiveWakeupEnabled`);
+  assignNumber(output, "proactiveWakeupMinIntervalSeconds", table.proactiveWakeupMinIntervalSeconds, filePath, `${fieldPath}.proactiveWakeupMinIntervalSeconds`);
+  assignNumber(output, "proactiveWakeupMaxPerHour", table.proactiveWakeupMaxPerHour, filePath, `${fieldPath}.proactiveWakeupMaxPerHour`);
+  assignBoolean(output, "proactiveWakeupRequireEvidence", table.proactiveWakeupRequireEvidence, filePath, `${fieldPath}.proactiveWakeupRequireEvidence`);
+  assignBoolean(output, "proactiveTimerEnabled", table.proactiveTimerEnabled, filePath, `${fieldPath}.proactiveTimerEnabled`);
+  assignNumber(output, "proactiveTimerIntervalSeconds", table.proactiveTimerIntervalSeconds, filePath, `${fieldPath}.proactiveTimerIntervalSeconds`);
+
+  return output;
+}
+
+function mapComponent(value: unknown, filePath: string, fieldPath: string): DeepPartial<ComponentConfig> {
+  const table = expectTable(value, filePath, fieldPath);
+  const output: DeepPartial<ComponentConfig> = {};
+
+  assignString(output, "chunkStrategy", table.chunkStrategy, filePath, `${fieldPath}.chunkStrategy`);
+  assignString(output, "storageBackend", table.storageBackend, filePath, `${fieldPath}.storageBackend`);
+  assignString(output, "sqliteFilePath", table.sqliteFilePath, filePath, `${fieldPath}.sqliteFilePath`);
+  assignString(output, "lanceFilePath", table.lanceFilePath, filePath, `${fieldPath}.lanceFilePath`);
+  assignString(output, "chromaBaseUrl", table.chromaBaseUrl, filePath, `${fieldPath}.chromaBaseUrl`);
+  assignString(output, "chromaCollectionId", table.chromaCollectionId, filePath, `${fieldPath}.chromaCollectionId`);
+  assignString(output, "chromaApiKey", table.chromaApiKey, filePath, `${fieldPath}.chromaApiKey`);
+  assignString(output, "relationExtractor", table.relationExtractor, filePath, `${fieldPath}.relationExtractor`);
+  assignString(output, "relationModel", table.relationModel, filePath, `${fieldPath}.relationModel`);
+  assignNumber(output, "relationTimeoutMs", table.relationTimeoutMs, filePath, `${fieldPath}.relationTimeoutMs`);
+  assignString(output, "tagger", table.tagger, filePath, `${fieldPath}.tagger`);
+  assignString(output, "taggerModel", table.taggerModel, filePath, `${fieldPath}.taggerModel`);
+  assignNumber(output, "taggerTimeoutMs", table.taggerTimeoutMs, filePath, `${fieldPath}.taggerTimeoutMs`);
+  assignNumber(
+    output,
+    "taggerImportantThreshold",
+    table.taggerImportantThreshold,
+    filePath,
+    `${fieldPath}.taggerImportantThreshold`
+  );
+  assignString(output, "rawStoreBackend", table.rawStoreBackend, filePath, `${fieldPath}.rawStoreBackend`);
+  assignString(output, "rawStoreFilePath", table.rawStoreFilePath, filePath, `${fieldPath}.rawStoreFilePath`);
+  assignString(output, "relationStoreBackend", table.relationStoreBackend, filePath, `${fieldPath}.relationStoreBackend`);
+  assignString(output, "relationStoreFilePath", table.relationStoreFilePath, filePath, `${fieldPath}.relationStoreFilePath`);
+  assignString(output, "graphEmbeddingMethod", table.graphEmbeddingMethod, filePath, `${fieldPath}.graphEmbeddingMethod`);
+  assignString(output, "searchProvider", table.searchProvider, filePath, `${fieldPath}.searchProvider`);
+  assignString(output, "searchEndpoint", table.searchEndpoint, filePath, `${fieldPath}.searchEndpoint`);
+  assignString(output, "searchApiKey", table.searchApiKey, filePath, `${fieldPath}.searchApiKey`);
+  assignString(output, "webFetchEndpoint", table.webFetchEndpoint, filePath, `${fieldPath}.webFetchEndpoint`);
+  assignString(output, "webFetchApiKey", table.webFetchApiKey, filePath, `${fieldPath}.webFetchApiKey`);
+  assignStringArray(output, "searchSeedQueries", table.searchSeedQueries, filePath, `${fieldPath}.searchSeedQueries`);
+  assignNumber(output, "searchTimeoutMs", table.searchTimeoutMs, filePath, `${fieldPath}.searchTimeoutMs`);
+  assignBoolean(output, "webDebugApiEnabled", table.webDebugApiEnabled, filePath, `${fieldPath}.webDebugApiEnabled`);
+  assignBoolean(output, "webFileApiEnabled", table.webFileApiEnabled, filePath, `${fieldPath}.webFileApiEnabled`);
+  assignBoolean(output, "webExposeRawContext", table.webExposeRawContext, filePath, `${fieldPath}.webExposeRawContext`);
+  assignNumber(output, "webRequestBodyMaxBytes", table.webRequestBodyMaxBytes, filePath, `${fieldPath}.webRequestBodyMaxBytes`);
+  assignString(output, "webAdminToken", table.webAdminToken, filePath, `${fieldPath}.webAdminToken`);
+  assignBoolean(output, "debugTraceEnabled", table.debugTraceEnabled, filePath, `${fieldPath}.debugTraceEnabled`);
+  assignNumber(output, "debugTraceMaxEntries", table.debugTraceMaxEntries, filePath, `${fieldPath}.debugTraceMaxEntries`);
+
+  return output;
+}
+
+function assignString<T extends Record<string, unknown>>(
+  target: T,
+  key: keyof T,
+  value: unknown,
+  filePath: string,
+  fieldPath: string
+): void {
+  if (value === undefined) return;
+  if (typeof value !== "string") {
+    throw typeError(filePath, fieldPath, "string", value);
+  }
+  target[key] = value as T[keyof T];
+}
+
+function assignNumber<T extends Record<string, unknown>>(
+  target: T,
+  key: keyof T,
+  value: unknown,
+  filePath: string,
+  fieldPath: string
+): void {
+  if (value === undefined) return;
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    throw typeError(filePath, fieldPath, "number", value);
+  }
+  target[key] = value as T[keyof T];
+}
+
+function assignBoolean<T extends Record<string, unknown>>(
+  target: T,
+  key: keyof T,
+  value: unknown,
+  filePath: string,
+  fieldPath: string
+): void {
+  if (value === undefined) return;
+  if (typeof value !== "boolean") {
+    throw typeError(filePath, fieldPath, "boolean", value);
+  }
+  target[key] = value as T[keyof T];
+}
+
+function assignStringArray<T extends Record<string, unknown>>(
+  target: T,
+  key: keyof T,
+  value: unknown,
+  filePath: string,
+  fieldPath: string
+): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw typeError(filePath, fieldPath, "string[]", value);
+  }
+  target[key] = value as T[keyof T];
+}
+
+function expectTable(value: unknown, filePath: string, fieldPath: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw typeError(filePath, fieldPath, "table", value);
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function typeError(filePath: string, fieldPath: string, expected: string, actual: unknown): Error {
+  return new Error(
+    `Invalid TOML config at ${filePath}: ${fieldPath} must be ${expected}, got ${describeValue(actual)}.`
+  );
+}
+
+function describeValue(value: unknown): string {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}

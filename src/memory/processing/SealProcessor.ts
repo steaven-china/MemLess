@@ -4,6 +4,7 @@ import type { IEmbedder } from "../embedder/IEmbedder.js";
 import type { IHistoryMatchCalculator } from "../management/HistoryMatchCalculator.js";
 import type { RetentionPolicyEngine } from "../management/RetentionPolicyEngine.js";
 import type { IRawEventStore } from "../raw/IRawEventStore.js";
+import type { ITagger } from "../tagger/Tagger.js";
 import type { ISummarizer } from "../summarizer/ISummarizer.js";
 import type { MemoryBlock } from "../MemoryBlock.js";
 
@@ -13,6 +14,7 @@ export interface SealProcessorDeps {
   rawStore: IRawEventStore;
   historyMatchCalculator: IHistoryMatchCalculator;
   retentionPolicy: RetentionPolicyEngine;
+  tagger: ITagger;
 }
 
 export interface SealProcessResult {
@@ -27,9 +29,10 @@ export class SealProcessor {
 
   async process(block: MemoryBlock, history: MemoryBlock[]): Promise<SealProcessResult> {
     const summary = this.generateSummary(block.rawEvents);
+    const semanticText = `${summary}\n${joinEventText(block.rawEvents)}`.trim();
     block.summary = summary;
     block.keywords = this.extractKeywords(`${summary} ${joinEventText(block.rawEvents)}`);
-    block.embedding = this.embed(summary);
+    block.embedding = this.embed(semanticText);
 
     const matchResult = this.deps.historyMatchCalculator.calculate(block, history);
     block.matchScore = matchResult.score;
@@ -42,6 +45,7 @@ export class SealProcessor {
       relationBoost: matchResult.relationBoost
     });
     await decision.action.apply(block, this.deps.rawStore);
+    block.tags = normalizeTags(await this.deps.tagger.tag(block));
 
     return {
       block,
@@ -66,4 +70,16 @@ export class SealProcessor {
 
 function joinEventText(events: MemoryEvent[]): string {
   return events.map((event) => event.text).join(" ");
+}
+
+function normalizeTags(tags: string[]): Array<"important" | "normal"> {
+  const output: Array<"important" | "normal"> = [];
+  for (const tag of tags) {
+    if ((tag === "important" || tag === "normal") && !output.includes(tag)) {
+      output.push(tag);
+    }
+  }
+  if (output.includes("important")) return ["important"];
+  if (output.includes("normal")) return ["normal"];
+  return ["normal"];
 }

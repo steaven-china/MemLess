@@ -22,7 +22,9 @@ export class HttpWebPageFetcher implements IWebPageFetcher {
       return {
         url: target,
         content: "",
-        fetchedAt: Date.now()
+        fetchedAt: Date.now(),
+        status: "not_configured",
+        error: !endpoint ? "web fetch endpoint is not configured" : "url is empty"
       };
     }
 
@@ -45,7 +47,10 @@ export class HttpWebPageFetcher implements IWebPageFetcher {
         return {
           url: target,
           content: "",
-          fetchedAt: Date.now()
+          fetchedAt: Date.now(),
+          status: "http_error",
+          error: `web fetch http error: ${response.status}`,
+          httpStatus: response.status
         };
       }
       const payload = (await response.json()) as WebFetchApiResponse;
@@ -53,13 +58,17 @@ export class HttpWebPageFetcher implements IWebPageFetcher {
         url: (payload.url ?? target).trim(),
         title: payload.title?.trim(),
         content: (payload.content ?? "").trim(),
-        fetchedAt: Date.now()
+        fetchedAt: Date.now(),
+        status: "ok"
       };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       return {
         url: target,
         content: "",
-        fetchedAt: Date.now()
+        fetchedAt: Date.now(),
+        status: "request_error",
+        error: `web fetch request error: ${message}`
       };
     } finally {
       clearTimeout(timer);

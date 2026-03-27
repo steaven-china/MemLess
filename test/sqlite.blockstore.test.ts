@@ -32,4 +32,47 @@ describe("SQLiteBlockStore getMany", () => {
       sqlite.close();
     }
   });
+
+  test("persists and hydrates tags_json", async () => {
+    const folder = await fs.mkdtemp(join(tmpdir(), "mlex-sqlite-blockstore-tags-"));
+    const sqliteFile = join(folder, "memory.db");
+    const sqlite = new SQLiteDatabase({ filePath: sqliteFile });
+    try {
+      const store = new SQLiteBlockStore(sqlite);
+      const block = new MemoryBlock("block_tags", 1234);
+      block.summary = "incident rollback blocked";
+      block.tags = ["important"];
+      store.upsert(block);
+
+      const loaded = store.get("block_tags");
+      expect(loaded?.tags).toEqual(["important"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  test("falls back to normal tag when tags_json is missing", async () => {
+    const folder = await fs.mkdtemp(join(tmpdir(), "mlex-sqlite-blockstore-legacy-"));
+    const sqliteFile = join(folder, "memory.db");
+    const sqlite = new SQLiteDatabase({ filePath: sqliteFile });
+    try {
+      sqlite.handle.exec(`
+        INSERT INTO blocks (
+          id, start_time, end_time, token_count, summary,
+          keywords_json, embedding_json, raw_events_json,
+          retention_mode, match_score, conflict, tags_json
+        ) VALUES (
+          'legacy_block', 1, 2, 3, 'legacy summary',
+          '[]', '[]', '[]',
+          'raw', 0, 0, 'null'
+        )
+      `);
+
+      const store = new SQLiteBlockStore(sqlite);
+      const loaded = store.get("legacy_block");
+      expect(loaded?.tags).toEqual(["normal"]);
+    } finally {
+      sqlite.close();
+    }
+  });
 });

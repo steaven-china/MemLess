@@ -126,6 +126,7 @@ async function routeRequest(
     };
     const payload: Record<string, unknown> = {
       reply: result.text,
+      proactiveReply: result.proactiveText ?? null,
       context: result.context.formatted,
       blocks: result.context.blocks,
       prediction: result.context.prediction ?? null
@@ -162,6 +163,7 @@ async function routeRequest(
       };
       const donePayload: Record<string, unknown> = {
         reply: result.text,
+        proactiveReply: result.proactiveText ?? null,
         context: result.context.formatted,
         blocks: result.context.blocks,
         prediction: result.context.prediction ?? null

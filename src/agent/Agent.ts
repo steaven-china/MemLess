@@ -1,20 +1,28 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import type { IMemoryManager } from "../memory/IMemoryManager.js";
-import { createId } from "../utils/id.js";
 import type { Context, MemoryEvent } from "../types.js";
+import { createId } from "../utils/id.js";
+import type { IMemoryManager } from "../memory/IMemoryManager.js";
+import { ProactiveDialoguePlanner } from "../proactive/ProactiveDialoguePlanner.js";
+import { ProactiveActuator } from "../proactive/ProactiveActuator.js";
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
 import {
   formatToolResult,
   parseToolCall,
   type IAgentToolExecutor
 } from "./AgentToolExecutor.js";
-import type { ChatMessage, ILLMProvider, TokenCallback } from "./LLMProvider.js";
+import type {
+  ChatMessage,
+  ILLMProvider,
+  LlmGenerateOptions,
+  TokenCallback
+} from "./LLMProvider.js";
 
 export interface AgentResponse {
   text: string;
   context: Context;
+  proactiveText?: string;
 }
 
 export interface AgentOptions {
@@ -26,14 +34,25 @@ export interface AgentOptions {
   introductionPath?: string;
   toolExecutor?: IAgentToolExecutor;
   traceRecorder?: IDebugTraceRecorder;
+  proactivePlanner?: ProactiveDialoguePlanner;
+  proactiveActuator?: ProactiveActuator;
+}
+
+export interface AgentGenerateOptions {
+  signal?: AbortSignal;
 }
 
 export class Agent {
+  private static readonly MAX_TOOL_ROUNDS = 6;
+  private static readonly TIMER_WAKEUP_QUERY = "继续当前任务";
   private readonly systemPrompt: string;
   private readonly toolExecutor?: IAgentToolExecutor;
   private readonly introduction?: string;
   private readonly includeIntroductionWhenNoMemory: boolean;
   private readonly traceRecorder?: IDebugTraceRecorder;
+  private readonly proactivePlanner?: ProactiveDialoguePlanner;
+  private readonly proactiveActuator?: ProactiveActuator;
+  private proactiveTickRunning = false;
 
   constructor(
     private readonly memoryManager: IMemoryManager,
@@ -51,6 +70,8 @@ export class Agent {
     this.includeIntroductionWhenNoMemory = options.includeIntroductionWhenNoMemory !== false;
     this.toolExecutor = options.toolExecutor;
     this.traceRecorder = options.traceRecorder;
+    this.proactivePlanner = options.proactivePlanner;
+    this.proactiveActuator = options.proactiveActuator;
     const toolGuidelines = this.toolExecutor?.instructions();
 
     const parts = [basePrompt];
@@ -63,7 +84,7 @@ export class Agent {
     this.systemPrompt = parts.join("\n\n");
   }
 
-  async respond(input: string): Promise<AgentResponse> {
+  async respond(input: string, options: AgentGenerateOptions = {}): Promise<AgentResponse> {
     this.trace("respond.start", { stream: false, input });
     const userEvent = this.createEvent("user", input);
     await this.memoryManager.addEvent(userEvent);
@@ -76,19 +97,25 @@ export class Agent {
       formattedLength: context.formatted.length
     });
     const baseMessages = this.composeMessages(input, context);
-    const text = await this.generateWithTools(baseMessages);
+    const text = await this.generateWithTools(baseMessages, undefined, options);
 
     const assistantEvent = this.createEvent("assistant", text);
     await this.memoryManager.addEvent(assistantEvent);
+    const proactiveText = await this.maybeProactiveWakeup(input, context);
     this.trace("respond.done", {
       stream: false,
-      text
+      text,
+      proactiveText
     });
 
-    return { text, context };
+    return { text, context, proactiveText };
   }
 
-  async respondStream(input: string, onToken: TokenCallback): Promise<AgentResponse> {
+  async respondStream(
+    input: string,
+    onToken: TokenCallback,
+    options: AgentGenerateOptions = {}
+  ): Promise<AgentResponse> {
     this.trace("respond.start", { stream: true, input });
     const userEvent = this.createEvent("user", input);
     await this.memoryManager.addEvent(userEvent);
@@ -101,24 +128,43 @@ export class Agent {
       formattedLength: context.formatted.length
     });
     const baseMessages = this.composeMessages(input, context);
-    const text = await this.generateWithTools(baseMessages, onToken);
+    const text = await this.generateWithTools(baseMessages, onToken, options);
 
     const assistantEvent = this.createEvent("assistant", text);
     await this.memoryManager.addEvent(assistantEvent);
+    const proactiveText = await this.maybeProactiveWakeup(input, context);
     this.trace("respond.done", {
       stream: true,
-      text
+      text,
+      proactiveText
     });
 
-    return { text, context };
+    return { text, context, proactiveText };
   }
 
   async sealMemory(): Promise<void> {
     await this.memoryManager.sealCurrentBlock();
   }
 
-  async getContext(query: string): Promise<Context> {
-    return this.memoryManager.getContext(query);
+  async getContext(query: string, triggerSource: "user" | "timer" = "user"): Promise<Context> {
+    return this.memoryManager.getContext(query, triggerSource);
+  }
+
+  async tickProactiveWakeup(): Promise<string | undefined> {
+    if (!this.proactivePlanner || !this.proactiveActuator) return undefined;
+    if (this.proactiveTickRunning) return undefined;
+    this.proactiveTickRunning = true;
+    try {
+      await this.memoryManager.tickProactiveWakeup();
+      const context = await this.memoryManager.getContext(Agent.TIMER_WAKEUP_QUERY, "timer");
+      const proactiveText = await this.maybeProactiveWakeup(Agent.TIMER_WAKEUP_QUERY, context);
+      this.trace("proactive.timer.tick", {
+        proactiveText
+      });
+      return proactiveText;
+    } finally {
+      this.proactiveTickRunning = false;
+    }
   }
 
   private composeMessages(input: string, context: Context): ChatMessage[] {
@@ -153,16 +199,18 @@ export class Agent {
 
   private async generateFallbackStream(
     messages: ChatMessage[],
-    onToken: TokenCallback
+    onToken: TokenCallback,
+    options: LlmGenerateOptions
   ): Promise<string> {
-    const text = await this.provider.generate(messages);
+    const text = await this.provider.generate(messages, options);
     onToken(text);
     return text;
   }
 
   private async generateWithTools(
     baseMessages: ChatMessage[],
-    onToken?: TokenCallback
+    onToken?: TokenCallback,
+    options: LlmGenerateOptions = {}
   ): Promise<string> {
     this.trace("model.round.start", {
       toolMode: Boolean(this.toolExecutor),
@@ -170,25 +218,35 @@ export class Agent {
     });
     if (!this.toolExecutor) {
       if (onToken && this.provider.generateStream) {
-        return this.provider.generateStream(baseMessages, onToken);
+        return this.provider.generateStream(baseMessages, onToken, options);
       }
       if (onToken) {
-        return this.generateFallbackStream(baseMessages, onToken);
+        return this.generateFallbackStream(baseMessages, onToken, options);
       }
-      return this.provider.generate(baseMessages);
+      return this.provider.generate(baseMessages, options);
     }
 
     const messages: ChatMessage[] = [...baseMessages];
-    const maxToolRounds = 4;
-    for (let round = 0; round < maxToolRounds; round += 1) {
-      const candidate = await this.provider.generate(messages);
+    for (let round = 0; round < Agent.MAX_TOOL_ROUNDS; round += 1) {
+      const candidate = await this.provider.generate(messages, options);
       this.trace("model.round.candidate", {
         round,
         candidate
       });
       const call = parseToolCall(candidate);
       if (!call) {
-        if (candidate.includes("<tool_call>")) {
+        const trimmedCandidate = candidate.trim();
+        const looksLikeJsonToolPayload =
+          trimmedCandidate.startsWith("{") ||
+          trimmedCandidate.startsWith("```") ||
+          trimmedCandidate.startsWith("```json");
+        const looksLikeToolPayload =
+          candidate.includes("<tool_call>") ||
+          (looksLikeJsonToolPayload &&
+            (candidate.includes('"tool":') ||
+              candidate.includes('"name":') ||
+              candidate.includes('"function":')));
+        if (looksLikeToolPayload) {
           this.trace("tool.parse.invalid", {
             round,
             candidate
@@ -197,7 +255,7 @@ export class Agent {
           messages.push({
             role: "user",
             content:
-              'TOOL_RESULT {"tool":"tool_call.parser","ok":false,"content":"Invalid <tool_call> payload. Please return strict JSON with name and args."}'
+              'TOOL_RESULT {"tool":"tool_call.parser","ok":false,"content":"Invalid tool-call payload. Please return strict JSON with name and args (or tool/arguments)."}'
           });
           continue;
         }
@@ -223,9 +281,27 @@ export class Agent {
       messages.push({ role: "user", content: formatToolResult(call, result) });
     }
 
-    const fallback = "工具调用轮次已达上限，请缩小问题范围后重试。";
+    const fallback = `Tool call rounds exceeded limit (${Agent.MAX_TOOL_ROUNDS}). Please provide a concise best-effort answer with available information.`;
+    this.trace("tool.round.limit", {
+      maxToolRounds: Agent.MAX_TOOL_ROUNDS,
+      fallback
+    });
     if (onToken) onToken(fallback);
     return fallback;
+  }
+
+  private async maybeProactiveWakeup(input: string, context: Context): Promise<string | undefined> {
+    if (!this.proactivePlanner || !this.proactiveActuator) return undefined;
+    const plan = this.proactivePlanner.buildPlan({ userInput: input, context });
+    if (plan.action === "noop") return undefined;
+    const proactiveText = await this.proactiveActuator.execute(plan);
+    if (!proactiveText) return undefined;
+    this.trace("proactive.wakeup", {
+      action: plan.action,
+      reason: plan.reason,
+      proactiveText
+    });
+    return proactiveText;
   }
 
   private shouldInjectIntroduction(context: Context): boolean {
@@ -281,3 +357,9 @@ function readFirstNonEmpty(paths: Iterable<string>, maxLength: number): string |
 
   return undefined;
 }
+
+
+
+
+
+

@@ -41,4 +41,20 @@ describe("parseToolCall", () => {
       }
     });
   });
+
+  test("parses extended history.query arguments", () => {
+    const parsed = parseToolCall(
+      '<tool_call>{"name":"history.query","args":{"query":"支付 webhook","mode":"semantic","limit":2,"keywords":["幂等"],"includePrediction":false}}</tool_call>'
+    );
+    expect(parsed).toEqual({
+      name: "history.query",
+      args: {
+        query: "支付 webhook",
+        mode: "semantic",
+        limit: 2,
+        keywords: ["幂等"],
+        includePrediction: false
+      }
+    });
+  });
 });

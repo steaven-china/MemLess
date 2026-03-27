@@ -1,4 +1,5 @@
 import type { ManagerConfig } from "./types.js";
+import { loadUserTomlConfig } from "./config/toml.js";
 
 export interface EnvironmentConfig {
   nodeEnv: string;
@@ -26,6 +27,10 @@ export interface ComponentConfig {
   relationExtractor: "heuristic" | "openai" | "deepseek";
   relationModel: string;
   relationTimeoutMs: number;
+  tagger: "heuristic" | "openai" | "deepseek";
+  taggerModel: string;
+  taggerTimeoutMs: number;
+  taggerImportantThreshold: number;
   rawStoreBackend: "memory" | "file" | "sqlite";
   rawStoreFilePath: string;
   relationStoreBackend: "memory" | "file" | "sqlite";
@@ -89,10 +94,25 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   predictionBoostWeight: 0.25,
   searchAugmentMode: "lazy",
   searchScheduleMinutes: 30,
-  searchTopK: 5
+  searchTopK: 5,
+  proactiveWakeupEnabled: false,
+  proactiveWakeupMinIntervalSeconds: 600,
+  proactiveWakeupMaxPerHour: 3,
+  proactiveWakeupRequireEvidence: false,
+  proactiveTimerEnabled: false,
+  proactiveTimerIntervalSeconds: 300
 };
 
-export function loadConfig(overrides: DeepPartial<AppConfig> = {}): AppConfig {
+export interface LoadConfigOptions {
+  userTomlPath?: string;
+}
+
+export function loadConfig(
+  overrides: DeepPartial<AppConfig> = {},
+  options: LoadConfigOptions = {}
+): AppConfig {
+  const shouldLoadUserToml = options.userTomlPath !== undefined || process.env.NODE_ENV !== "test";
+  const userToml = shouldLoadUserToml ? loadUserTomlConfig({ filePath: options.userTomlPath }) : {};
   const environment: EnvironmentConfig = {
     nodeEnv: process.env.NODE_ENV ?? "development",
     logLevel: (process.env.LOG_LEVEL as EnvironmentConfig["logLevel"]) ?? "info"
@@ -187,6 +207,24 @@ export function loadConfig(overrides: DeepPartial<AppConfig> = {}): AppConfig {
       DEFAULT_MANAGER_CONFIG.searchScheduleMinutes
     ),
     searchTopK: parseEnvNumber("MLEX_SEARCH_TOPK", DEFAULT_MANAGER_CONFIG.searchTopK),
+    proactiveWakeupEnabled:
+      (process.env.MLEX_PROACTIVE_WAKEUP_ENABLED ?? "false").toLowerCase() === "true",
+    proactiveWakeupMinIntervalSeconds: parseEnvNumber(
+      "MLEX_PROACTIVE_WAKEUP_MIN_INTERVAL_SECONDS",
+      DEFAULT_MANAGER_CONFIG.proactiveWakeupMinIntervalSeconds
+    ),
+    proactiveWakeupMaxPerHour: parseEnvNumber(
+      "MLEX_PROACTIVE_WAKEUP_MAX_PER_HOUR",
+      DEFAULT_MANAGER_CONFIG.proactiveWakeupMaxPerHour
+    ),
+    proactiveWakeupRequireEvidence:
+      (process.env.MLEX_PROACTIVE_WAKEUP_REQUIRE_EVIDENCE ?? "false").toLowerCase() === "true",
+    proactiveTimerEnabled:
+      (process.env.MLEX_PROACTIVE_TIMER_ENABLED ?? "false").toLowerCase() === "true",
+    proactiveTimerIntervalSeconds: parseEnvNumber(
+      "MLEX_PROACTIVE_TIMER_INTERVAL_SECONDS",
+      DEFAULT_MANAGER_CONFIG.proactiveTimerIntervalSeconds
+    ),
     enableRelationExpansion:
       (process.env.MLEX_RELATION_EXPAND ?? "true").toLowerCase() !== "false"
   };
@@ -205,6 +243,10 @@ export function loadConfig(overrides: DeepPartial<AppConfig> = {}): AppConfig {
       (process.env.MLEX_RELATION_EXTRACTOR as ComponentConfig["relationExtractor"]) ?? "heuristic",
     relationModel: process.env.MLEX_RELATION_MODEL ?? "gpt-4.1-nano",
     relationTimeoutMs: parseEnvNumber("MLEX_RELATION_TIMEOUT_MS", 12000),
+    tagger: (process.env.MLEX_TAGGER as ComponentConfig["tagger"]) ?? "heuristic",
+    taggerModel: process.env.MLEX_TAGGER_MODEL ?? "gpt-4.1-nano",
+    taggerTimeoutMs: parseEnvNumber("MLEX_TAGGER_TIMEOUT_MS", 10000),
+    taggerImportantThreshold: parseEnvFloat("MLEX_TAGGER_IMPORTANT_THRESHOLD", 0.6),
     rawStoreBackend:
       (process.env.MLEX_RAW_STORE_BACKEND as ComponentConfig["rawStoreBackend"]) ??
       (environment.nodeEnv === "test" ? "memory" : "sqlite"),
@@ -216,7 +258,7 @@ export function loadConfig(overrides: DeepPartial<AppConfig> = {}): AppConfig {
     graphEmbeddingMethod:
       (process.env.MLEX_GRAPH_EMBEDDING_METHOD as ComponentConfig["graphEmbeddingMethod"]) ??
       "node2vec",
-    searchProvider: "http",
+    searchProvider: (process.env.MLEX_SEARCH_PROVIDER as ComponentConfig["searchProvider"]) ?? "http",
     searchEndpoint: process.env.MLEX_SEARCH_ENDPOINT,
     searchApiKey: process.env.MLEX_SEARCH_API_KEY,
     webFetchEndpoint: process.env.MLEX_WEB_FETCH_ENDPOINT,
@@ -236,7 +278,57 @@ export function loadConfig(overrides: DeepPartial<AppConfig> = {}): AppConfig {
     debugTraceMaxEntries: parseEnvNumber("MLEX_DEBUG_TRACE_MAX_ENTRIES", 2000)
   };
 
-  return deepMerge({ environment, service, manager, component }, overrides);
+  const baseConfig: AppConfig = { environment, service, manager, component };
+  const merged = deepMerge(deepMerge(baseConfig, userToml), overrides);
+  return validateConfig(merged);
+}
+
+function validateConfig(config: AppConfig): AppConfig {
+  validateEnum("service.provider", config.service.provider, [
+    "rule-based",
+    "openai",
+    "deepseek-reasoner"
+  ]);
+  validateEnum("component.chunkStrategy", config.component.chunkStrategy, ["fixed", "semantic", "hybrid"]);
+  validateEnum("component.storageBackend", config.component.storageBackend, [
+    "memory",
+    "sqlite",
+    "lance",
+    "chroma"
+  ]);
+  validateEnum("component.rawStoreBackend", config.component.rawStoreBackend, [
+    "memory",
+    "file",
+    "sqlite"
+  ]);
+  validateEnum("component.relationStoreBackend", config.component.relationStoreBackend, [
+    "memory",
+    "file",
+    "sqlite"
+  ]);
+  validateEnum("component.graphEmbeddingMethod", config.component.graphEmbeddingMethod, [
+    "node2vec",
+    "transe"
+  ]);
+  validateEnum("component.relationExtractor", config.component.relationExtractor, [
+    "heuristic",
+    "openai",
+    "deepseek"
+  ]);
+  validateEnum("component.tagger", config.component.tagger, ["heuristic", "openai", "deepseek"]);
+  validateEnum("component.searchProvider", config.component.searchProvider, ["http"]);
+  validateEnum("manager.searchAugmentMode", config.manager.searchAugmentMode, [
+    "lazy",
+    "auto",
+    "scheduled",
+    "predictive"
+  ]);
+  return config;
+}
+
+function validateEnum(name: string, value: string, allowed: string[]): void {
+  if (allowed.includes(value)) return;
+  throw new Error(`Invalid ${name}: ${value}. Allowed values: ${allowed.join(", ")}`);
 }
 
 function parseEnvNumber(name: string, defaultValue: number): number {
@@ -262,8 +354,8 @@ function parseEnvCsv(name: string): string[] {
     .filter((item) => item.length > 0);
 }
 
-function deepMerge<T extends Record<string, unknown>>(base: T, overrides: DeepPartial<T>): T {
-  const output: Record<string, unknown> = { ...base };
+function deepMerge<T extends object>(base: T, overrides: DeepPartial<T>): T {
+  const output: Record<string, unknown> = { ...(base as Record<string, unknown>) };
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) continue;
     if (isRecord(value) && isRecord(output[key])) {

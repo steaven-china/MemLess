@@ -1,5 +1,6 @@
 import { MemoryBlock } from "../MemoryBlock.js";
 import type { IBlockStore } from "./IBlockStore.js";
+import type { StatementSync } from "node:sqlite";
 import type { SQLiteDatabase } from "../sqlite/SQLiteDatabase.js";
 
 type Row = {
@@ -14,18 +15,22 @@ type Row = {
   retention_mode: MemoryBlock["retentionMode"];
   match_score: number;
   conflict: number;
+  tags_json: string;
 };
 
 export class SQLiteBlockStore implements IBlockStore {
-  constructor(private readonly sqlite: SQLiteDatabase) {}
+  private readonly upsertStatement: StatementSync;
+  private readonly getStatement: StatementSync;
+  private readonly listStatement: StatementSync;
+  private readonly getManyStatements = new Map<number, StatementSync>();
 
-  upsert(block: MemoryBlock): void {
-    const statement = this.sqlite.handle.prepare(`
+  constructor(private readonly sqlite: SQLiteDatabase) {
+    this.upsertStatement = this.sqlite.handle.prepare(`
       INSERT INTO blocks (
         id, start_time, end_time, token_count, summary,
         keywords_json, embedding_json, raw_events_json,
-        retention_mode, match_score, conflict
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        retention_mode, match_score, conflict, tags_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         start_time=excluded.start_time,
         end_time=excluded.end_time,
@@ -36,9 +41,27 @@ export class SQLiteBlockStore implements IBlockStore {
         raw_events_json=excluded.raw_events_json,
         retention_mode=excluded.retention_mode,
         match_score=excluded.match_score,
-        conflict=excluded.conflict
+        conflict=excluded.conflict,
+        tags_json=excluded.tags_json
     `);
-    statement.run(
+    this.getStatement = this.sqlite.handle.prepare(`
+      SELECT
+        id, start_time, end_time, token_count, summary,
+        keywords_json, embedding_json, raw_events_json,
+        retention_mode, match_score, conflict, tags_json
+      FROM blocks WHERE id = ?
+    `);
+    this.listStatement = this.sqlite.handle.prepare(`
+      SELECT
+        id, start_time, end_time, token_count, summary,
+        keywords_json, embedding_json, raw_events_json,
+        retention_mode, match_score, conflict, tags_json
+      FROM blocks ORDER BY start_time ASC
+    `);
+  }
+
+  upsert(block: MemoryBlock): void {
+    this.upsertStatement.run(
       block.id,
       block.startTime,
       block.endTime,
@@ -49,19 +72,13 @@ export class SQLiteBlockStore implements IBlockStore {
       JSON.stringify(block.rawEvents),
       block.retentionMode,
       block.matchScore,
-      block.conflict ? 1 : 0
+      block.conflict ? 1 : 0,
+      JSON.stringify(normalizeTags(block.tags))
     );
   }
 
   get(blockId: string): MemoryBlock | undefined {
-    const statement = this.sqlite.handle.prepare(`
-      SELECT
-        id, start_time, end_time, token_count, summary,
-        keywords_json, embedding_json, raw_events_json,
-        retention_mode, match_score, conflict
-      FROM blocks WHERE id = ?
-    `);
-    const row = statement.get(blockId) as Row | undefined;
+    const row = this.getStatement.get(blockId) as Row | undefined;
     return row ? toMemoryBlock(row) : undefined;
   }
 
@@ -69,15 +86,7 @@ export class SQLiteBlockStore implements IBlockStore {
     if (blockIds.length === 0) return [];
 
     const uniqueIds = [...new Set(blockIds)];
-    const placeholders = uniqueIds.map(() => "?").join(", ");
-    const statement = this.sqlite.handle.prepare(`
-      SELECT
-        id, start_time, end_time, token_count, summary,
-        keywords_json, embedding_json, raw_events_json,
-        retention_mode, match_score, conflict
-      FROM blocks
-      WHERE id IN (${placeholders})
-    `);
+    const statement = this.getManyStatement(uniqueIds.length);
     const rows = statement.all(...uniqueIds) as Row[];
     const byId = new Map(rows.map((row) => {
       const block = toMemoryBlock(row);
@@ -90,15 +99,25 @@ export class SQLiteBlockStore implements IBlockStore {
   }
 
   list(): MemoryBlock[] {
+    const rows = this.listStatement.all() as Row[];
+    return rows.map(toMemoryBlock);
+  }
+
+  private getManyStatement(arity: number): StatementSync {
+    const cached = this.getManyStatements.get(arity);
+    if (cached) return cached;
+
+    const placeholders = new Array(arity).fill("?").join(", ");
     const statement = this.sqlite.handle.prepare(`
       SELECT
         id, start_time, end_time, token_count, summary,
         keywords_json, embedding_json, raw_events_json,
-        retention_mode, match_score, conflict
-      FROM blocks ORDER BY start_time ASC
+        retention_mode, match_score, conflict, tags_json
+      FROM blocks
+      WHERE id IN (${placeholders})
     `);
-    const rows = statement.all() as Row[];
-    return rows.map(toMemoryBlock);
+    this.getManyStatements.set(arity, statement);
+    return statement;
   }
 }
 
@@ -113,6 +132,7 @@ function toMemoryBlock(row: Row): MemoryBlock {
   block.retentionMode = row.retention_mode ?? "raw";
   block.matchScore = typeof row.match_score === "number" ? row.match_score : 0;
   block.conflict = row.conflict === 1;
+  block.tags = normalizeTags(parseJson<string[]>(row.tags_json, ["normal"]));
   return block;
 }
 
@@ -122,4 +142,18 @@ function parseJson<T>(raw: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function normalizeTags(tags: unknown): Array<"important" | "normal"> {
+  const output: Array<"important" | "normal"> = [];
+  if (Array.isArray(tags)) {
+    for (const tag of tags) {
+      if ((tag === "important" || tag === "normal") && !output.includes(tag)) {
+        output.push(tag);
+      }
+    }
+  }
+  if (output.includes("important")) return ["important"];
+  if (output.includes("normal")) return ["normal"];
+  return ["normal"];
 }

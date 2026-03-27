@@ -1,4 +1,9 @@
-import type { ChatMessage, ILLMProvider, TokenCallback } from "./LLMProvider.js";
+import type {
+  ChatMessage,
+  ILLMProvider,
+  LlmGenerateOptions,
+  TokenCallback
+} from "./LLMProvider.js";
 
 export interface ChatCompletionProviderConfig {
   apiKey: string;
@@ -59,12 +64,12 @@ export class ChatCompletionProvider implements ILLMProvider {
     this.emptyResponseMessage = options.emptyResponseMessage ?? "模型没有返回可用文本。";
   }
 
-  async generate(messages: ChatMessage[]): Promise<string> {
+  async generate(messages: ChatMessage[], options?: LlmGenerateOptions): Promise<string> {
     this.trace("request.start", {
       stream: false,
       messages
     });
-    const response = await this.request(messages, false);
+    const response = await this.request(messages, false, options?.signal);
     this.trace("request.response", {
       stream: false,
       status: response.status
@@ -92,19 +97,23 @@ export class ChatCompletionProvider implements ILLMProvider {
         stream: false,
         reasoning
       });
-      const retried = await this.retryForNonEmptyText(messages);
+      const retried = await this.retryForNonEmptyText(messages, options?.signal);
       return retried ?? this.emptyResponseMessage;
     }
     this.rememberAssistantReasoning(content, reasoning);
     return content;
   }
 
-  async generateStream(messages: ChatMessage[], onToken: TokenCallback): Promise<string> {
+  async generateStream(
+    messages: ChatMessage[],
+    onToken: TokenCallback,
+    options?: LlmGenerateOptions
+  ): Promise<string> {
     this.trace("request.start", {
       stream: true,
       messages
     });
-    const response = await this.request(messages, true);
+    const response = await this.request(messages, true, options?.signal);
     this.trace("request.response", {
       stream: true,
       status: response.status
@@ -162,7 +171,7 @@ export class ChatCompletionProvider implements ILLMProvider {
       stream: true,
       reasoning: fullReasoning
     });
-    const retried = await this.retryForNonEmptyText(messages);
+    const retried = await this.retryForNonEmptyText(messages, options?.signal);
     if (retried) {
       onToken(retried);
       return retried;
@@ -171,7 +180,7 @@ export class ChatCompletionProvider implements ILLMProvider {
     return this.emptyResponseMessage;
   }
 
-  private request(messages: ChatMessage[], stream: boolean): Promise<Response> {
+  private request(messages: ChatMessage[], stream: boolean, signal?: AbortSignal): Promise<Response> {
     const apiMessages = messages.map((message) => this.toApiMessage(message));
     return fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
@@ -183,11 +192,15 @@ export class ChatCompletionProvider implements ILLMProvider {
         model: this.config.model,
         messages: apiMessages,
         stream
-      })
+      }),
+      signal
     });
   }
 
-  private async retryForNonEmptyText(messages: ChatMessage[]): Promise<string | undefined> {
+  private async retryForNonEmptyText(
+    messages: ChatMessage[],
+    signal?: AbortSignal
+  ): Promise<string | undefined> {
     const retryMessages: ChatMessage[] = [
       ...messages,
       {
@@ -200,7 +213,7 @@ export class ChatCompletionProvider implements ILLMProvider {
         stream: false,
         messages: retryMessages
       });
-      const retryResponse = await this.request(retryMessages, false);
+      const retryResponse = await this.request(retryMessages, false, signal);
       if (!retryResponse.ok) {
         this.trace("retry.response", {
           stream: false,

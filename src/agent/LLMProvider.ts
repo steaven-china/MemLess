@@ -5,7 +5,15 @@ export interface ChatMessage {
 
 export type TokenCallback = (token: string) => void;
 
+export interface LlmGenerateOptions {
+  signal?: AbortSignal;
+}
+
 export interface ILLMProvider {
-  generate(messages: ChatMessage[]): Promise<string>;
-  generateStream?(messages: ChatMessage[], onToken: TokenCallback): Promise<string>;
+  generate(messages: ChatMessage[], options?: LlmGenerateOptions): Promise<string>;
+  generateStream?(
+    messages: ChatMessage[],
+    onToken: TokenCallback,
+    options?: LlmGenerateOptions
+  ): Promise<string>;
 }

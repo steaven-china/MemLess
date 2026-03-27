@@ -8,6 +8,7 @@ describe("Proactive seal", () => {
     const runtime = createRuntime({
       manager: {
         maxTokensPerBlock: 9999,
+        minTokensPerBlock: 1,
         proactiveSealEnabled: true,
         proactiveSealTurnBoundary: true,
         proactiveSealMinTokens: 1,
@@ -43,6 +44,7 @@ describe("Proactive seal", () => {
     const runtime = createRuntime({
       manager: {
         maxTokensPerBlock: 9999,
+        minTokensPerBlock: 1,
         proactiveSealEnabled: true,
         proactiveSealTurnBoundary: true,
         proactiveSealMinTokens: 1,
@@ -84,6 +86,7 @@ describe("Proactive seal", () => {
     const runtime = createRuntime({
       manager: {
         maxTokensPerBlock: 9999,
+        minTokensPerBlock: 1,
         proactiveSealEnabled: true,
         proactiveSealTurnBoundary: false,
         proactiveSealMinTokens: 1,
@@ -119,5 +122,41 @@ describe("Proactive seal", () => {
     }>("blockStore");
     const blocks = await blockStore.list();
     expect(blocks.length).toBe(1);
+  });
+
+  test("does not seal at role-switch boundary when below minTokensPerBlock", async () => {
+    const runtime = createRuntime({
+      manager: {
+        maxTokensPerBlock: 9999,
+        minTokensPerBlock: 120,
+        proactiveSealEnabled: true,
+        proactiveSealTurnBoundary: true,
+        proactiveSealMinTokens: 1,
+        proactiveSealIdleSeconds: 99999
+      },
+      component: {
+        chunkStrategy: "fixed"
+      }
+    });
+
+    const now = Date.now();
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "短问题",
+      timestamp: now
+    });
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "assistant",
+      text: "短回答",
+      timestamp: now + 1
+    });
+
+    const blockStore = runtime.container.resolve<{
+      list: () => Promise<Array<{ id: string }>>;
+    }>("blockStore");
+    const blocks = await blockStore.list();
+    expect(blocks.length).toBe(0);
   });
 });

@@ -19,26 +19,31 @@ export function renderAppHtml(): string {
     html, body { margin: 0; padding: 0; height: 100%; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; background: var(--bg); color: var(--ink); }
     .shell { max-width: 1400px; margin: 0 auto; height: 100%; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
     .layout { flex: 1; min-height: 0; display: flex; gap: 12px; }
-    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 30px rgba(17, 24, 39, 0.04); animation: cardIn 220ms ease-out; }
     .header { padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; }
-    .title { font-size: 15px; font-weight: 600; }
-    .status { font-size: 12px; color: var(--muted); }
+    .title { font-size: 15px; font-weight: 600; letter-spacing: 0.2px; }
+    .status { font-size: 12px; color: var(--muted); transition: color 160ms ease; }
     .status[data-live="1"]::before { content: "●"; color: #16a34a; margin-right: 6px; }
-    .status[data-live="0"]::before { content: "●"; color: #ef4444; margin-right: 6px; }
+    .status[data-live="0"]::before { content: "●"; color: #ef4444; margin-right: 6px; animation: pulseDot 1s ease-in-out infinite; }
+    .status[data-live="0"] { animation: statusPulse 1.1s ease-in-out infinite; }
     .chat-panel { display:flex; flex: 1; min-height:0; flex-direction:column; }
     .messages { flex: 1; min-height: 0; padding: 14px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
-    .bubble { max-width: 85%; white-space: pre-wrap; line-height: 1.55; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); }
-    .bubble.user { margin-left: auto; background: #111827; color: #fff; border-color: #111827; }
-    .bubble.assistant { margin-right: auto; background: #fff; color: #111827; }
+    .bubble { max-width: 85%; white-space: pre-wrap; line-height: 1.55; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); animation: bubbleIn 220ms cubic-bezier(.2,.8,.2,1); }
+    .bubble.user { margin-left: auto; background: #111827; color: #fff; border-color: #111827; transform-origin: right bottom; }
+    .bubble.assistant { margin-right: auto; background: #fff; color: #111827; transform-origin: left bottom; }
+    .bubble.assistant.streaming { color: #4b5563; position: relative; overflow: hidden; }
+    .bubble.assistant.streaming::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 25%, rgba(255,255,255,0.65) 45%, transparent 65%); animation: shimmer 1.3s linear infinite; }
     .composer { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
-    textarea { width: 100%; resize: vertical; min-height: 78px; max-height: 220px; border: 1px solid var(--line); outline: none; border-radius: 10px; padding: 10px; font: inherit; background: #fff; }
+    textarea { width: 100%; resize: vertical; min-height: 78px; max-height: 220px; border: 1px solid var(--line); outline: none; border-radius: 10px; padding: 10px; font: inherit; background: #fff; transition: border-color 140ms ease, box-shadow 140ms ease; }
     textarea:focus { border-color: #9ca3af; box-shadow: 0 0 0 3px rgba(17,24,39,0.06); }
     .actions { display: flex; gap: 8px; justify-content: flex-end; }
-    button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 8px 12px; cursor: pointer; font: inherit; }
+    button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 8px 12px; cursor: pointer; font: inherit; transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease, color 120ms ease; }
+    button:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(17, 24, 39, 0.08); }
+    button:active { transform: translateY(0); }
     button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-    button.primary:disabled { background: var(--accent-2); border-color: var(--accent-2); cursor: not-allowed; }
+    button.primary:disabled { background: var(--accent-2); border-color: var(--accent-2); cursor: not-allowed; box-shadow: none; transform: none; }
     .hint { padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
-    .raw-context { margin: 0 14px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+    .raw-context { margin: 0 14px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; transition: border-color 140ms ease; }
     .raw-context > summary { cursor: pointer; padding: 8px 10px; font-size: 12px; color: var(--muted); background: #f9fafb; }
     .raw-context[open] > summary { border-bottom: 1px solid var(--line); }
     .raw-context pre { margin: 0; padding: 10px; max-height: 220px; overflow: auto; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: #fcfcfd; }
@@ -74,6 +79,26 @@ export function renderAppHtml(): string {
     .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
     .modal-title { font-size: 14px; font-weight: 600; }
     .modal-content { margin: 0; padding: 12px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; flex: 1; background: #fcfcfd; }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes bubbleIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    @keyframes statusPulse {
+      0%, 100% { color: var(--muted); }
+      50% { color: #111827; }
+    }
+    @keyframes shimmer {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
     @media (max-width: 960px) {
       .layout { flex-direction: column; }
       .debug { width: 100%; max-width: none; max-height: 50vh; }
@@ -374,6 +399,7 @@ export function renderAppHtml(): string {
     async function sendMessage(text) {
       addBubble("user", text);
       const assistantBubble = addBubble("assistant", "");
+      assistantBubble.classList.add("streaming");
       setBusy(true, "thinking");
 
       try {
@@ -389,8 +415,16 @@ export function renderAppHtml(): string {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: text })
           });
+          if (!fallback.ok) {
+            throw new Error("fallback chat failed");
+          }
           const data = await fallback.json();
-          assistantBubble.textContent = data.reply ?? "请求失败";
+          const replyText = typeof data.reply === "string" ? data.reply : "请求失败";
+          const proactiveText = typeof data.proactiveReply === "string" ? data.proactiveReply : "";
+          assistantBubble.textContent = proactiveText
+            ? replyText + "\\n\\n" + proactiveText
+            : replyText;
+          assistantBubble.classList.remove("streaming");
           renderRawContext(data.rawContext ?? {
             formatted: data.context ?? "",
             blocks: Array.isArray(data.blocks) ? data.blocks : [],
@@ -422,8 +456,10 @@ export function renderAppHtml(): string {
             } else if (parsed.event === "done") {
               if (!textSoFar && typeof parsed.data?.reply === "string") {
                 textSoFar = parsed.data.reply;
-                assistantBubble.textContent = textSoFar;
               }
+              const proactive = typeof parsed.data?.proactiveReply === "string" ? parsed.data.proactiveReply : "";
+              assistantBubble.textContent = proactive ? textSoFar + "\\n\\n" + proactive : textSoFar;
+              assistantBubble.classList.remove("streaming");
               renderRawContext(parsed.data?.rawContext ?? {
                 formatted: parsed.data?.context ?? "",
                 blocks: Array.isArray(parsed.data?.blocks) ? parsed.data.blocks : [],
@@ -432,6 +468,7 @@ export function renderAppHtml(): string {
               await updateDebug();
             } else if (parsed.event === "error") {
               assistantBubble.textContent = "[stream error] " + (parsed.data?.error ?? "unknown");
+              assistantBubble.classList.remove("streaming");
             }
             messagesEl.scrollTop = messagesEl.scrollHeight;
             boundary = buffer.indexOf("\\n\\n");
@@ -439,6 +476,7 @@ export function renderAppHtml(): string {
         }
       } catch (error) {
         assistantBubble.textContent = "请求失败，请检查服务状态。";
+        assistantBubble.classList.remove("streaming");
       } finally {
         setBusy(false, "ready");
       }

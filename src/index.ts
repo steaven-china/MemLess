@@ -3,6 +3,8 @@ export * from "./config.js";
 export * from "./container.js";
 export * from "./files/ReadonlyFileService.js";
 export * from "./debug/DebugTraceRecorder.js";
+export * from "./tui/chatCommand.js";
+export * from "./tui/MlexTuiApp.js";
 
 export * from "./agent/Agent.js";
 export * from "./agent/AgentToolExecutor.js";
@@ -10,6 +12,8 @@ export * from "./agent/DeepSeekReasonerProvider.js";
 export * from "./agent/LLMProvider.js";
 export * from "./agent/OpenAIProvider.js";
 export * from "./agent/RuleBasedProvider.js";
+export * from "./proactive/ProactiveDialoguePlanner.js";
+export * from "./proactive/ProactiveActuator.js";
 
 export * from "./memory/IMemoryManager.js";
 export * from "./memory/MemoryBlock.js";
@@ -79,5 +83,6 @@ export * from "./memory/sqlite/SQLiteDatabase.js";
 export * from "./memory/vector/IVectorStore.js";
 export * from "./memory/vector/InMemoryVectorStore.js";
 export * from "./memory/vector/BlockStoreVectorStore.js";
+export * from "./memory/vector/AnnCosineIndex.js";
 
 export * from "./web/server.js";

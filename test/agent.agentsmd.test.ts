@@ -32,6 +32,8 @@ class MemoryManagerStub implements IMemoryManager {
       formatted: "CTX"
     };
   }
+
+  async tickProactiveWakeup(): Promise<void> {}
 }
 
 describe("Agent AGENT.md injection", () => {

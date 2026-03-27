@@ -18,8 +18,12 @@ const program = new Command();
 
 program
   .name("mlex")
-  .description("Partition-memory agent CLI")
-  .version("0.2.0");
+  .description("Partition-memory agent CLI (loads ~/.mlex/config.toml when present)")
+  .version("0.2.0")
+  .addHelpText(
+    "after",
+    "\nConfig precedence: defaults < ~/.mlex/config.toml < env vars < CLI/runtime overrides."
+  );
 
 program
   .command("web")
@@ -43,11 +47,17 @@ program
   .option("--search-api-key <key>", "search provider api key")
   .option("--web-fetch-endpoint <url>", "web fetch endpoint")
   .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled")
+  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
   .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
   .option("--search-topk <number>", "max results per search record")
   .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
   .option("--prediction <enabled>", "true | false")
+  .option("--proactive-wakeup <enabled>", "true | false")
+  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
+  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
+  .option("--proactive-require-evidence <enabled>", "true | false")
+  .option("--proactive-timer <enabled>", "true | false")
+  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
   .option("--web-debug-api <enabled>", "true | false")
   .option("--web-file-api <enabled>", "true | false")
   .option("--web-raw-context <enabled>", "true | false")
@@ -122,11 +132,17 @@ program
   .option("--search-api-key <key>", "search provider api key")
   .option("--web-fetch-endpoint <url>", "web fetch endpoint")
   .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled")
+  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
   .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
   .option("--search-topk <number>", "max results per search record")
   .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
   .option("--prediction <enabled>", "true | false")
+  .option("--proactive-wakeup <enabled>", "true | false")
+  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
+  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
+  .option("--proactive-require-evidence <enabled>", "true | false")
+  .option("--proactive-timer <enabled>", "true | false")
+  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
   .option("--show-context", "print context debug info after each answer", false)
   .option("--debug-trace <enabled>", "true | false")
   .option("--debug-trace-max <number>", "max in-memory trace entries")
@@ -170,11 +186,17 @@ program
   .option("--search-api-key <key>", "search provider api key")
   .option("--web-fetch-endpoint <url>", "web fetch endpoint")
   .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled")
+  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
   .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
   .option("--search-topk <number>", "max results per search record")
   .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
   .option("--prediction <enabled>", "true | false")
+  .option("--proactive-wakeup <enabled>", "true | false")
+  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
+  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
+  .option("--proactive-require-evidence <enabled>", "true | false")
+  .option("--proactive-timer <enabled>", "true | false")
+  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
   .action(async (file: string, options) => {
     const runtime = createRuntime(buildRuntimeOverrides(options));
     try {
@@ -215,11 +237,17 @@ program
   .option("--search-api-key <key>", "search provider api key")
   .option("--web-fetch-endpoint <url>", "web fetch endpoint")
   .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled")
+  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
   .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
   .option("--search-topk <number>", "max results per search record")
   .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
   .option("--prediction <enabled>", "true | false")
+  .option("--proactive-wakeup <enabled>", "true | false")
+  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
+  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
+  .option("--proactive-require-evidence <enabled>", "true | false")
+  .option("--proactive-timer <enabled>", "true | false")
+  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
   .action(async (query: string, options) => {
     const runtime = createRuntime(buildRuntimeOverrides(options));
     try {
@@ -258,11 +286,17 @@ program
   .option("--search-api-key <key>", "search provider api key")
   .option("--web-fetch-endpoint <url>", "web fetch endpoint")
   .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled")
+  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
   .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
   .option("--search-topk <number>", "max results per search record")
   .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
   .option("--prediction <enabled>", "true | false")
+  .option("--proactive-wakeup <enabled>", "true | false")
+  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
+  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
+  .option("--proactive-require-evidence <enabled>", "true | false")
+  .option("--proactive-timer <enabled>", "true | false")
+  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
   .action(async (query: string, options) => {
     const workerCount = clampAgents(options.agents);
     const roles = buildRoles(workerCount);
@@ -340,7 +374,19 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       predictionEnabled: parseOptionalBoolean(asOptionalString(options.prediction)),
       searchAugmentMode: asOptionalString(options.searchMode) as AppConfig["manager"]["searchAugmentMode"],
       searchScheduleMinutes: parseOptionalNumber(asOptionalString(options.searchScheduleMinutes)),
-      searchTopK: parseOptionalNumber(asOptionalString(options.searchTopk))
+      searchTopK: parseOptionalNumber(asOptionalString(options.searchTopk)),
+      proactiveWakeupEnabled: parseOptionalBoolean(asOptionalString(options.proactiveWakeup)),
+      proactiveWakeupMinIntervalSeconds: parseOptionalNumber(
+        asOptionalString(options.proactiveMinIntervalSeconds)
+      ),
+      proactiveWakeupMaxPerHour: parseOptionalNumber(asOptionalString(options.proactiveMaxPerHour)),
+      proactiveWakeupRequireEvidence: parseOptionalBoolean(
+        asOptionalString(options.proactiveRequireEvidence)
+      ),
+      proactiveTimerEnabled: parseOptionalBoolean(asOptionalString(options.proactiveTimer)),
+      proactiveTimerIntervalSeconds: parseOptionalNumber(
+        asOptionalString(options.proactiveTimerIntervalSeconds)
+      )
     }
   };
 }

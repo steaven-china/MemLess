@@ -1,4 +1,5 @@
 import type { BlockId } from "../../types.js";
+import type { StatementSync } from "node:sqlite";
 import type { SQLiteDatabase } from "../sqlite/SQLiteDatabase.js";
 import type { IRelationStore, StoredRelation } from "./IRelationStore.js";
 
@@ -11,17 +12,37 @@ type RelationRow = {
 };
 
 export class SQLiteRelationStore implements IRelationStore {
-  constructor(private readonly sqlite: SQLiteDatabase) {}
+  private readonly addStatement: StatementSync;
+  private readonly listOutgoingStatement: StatementSync;
+  private readonly listIncomingStatement: StatementSync;
+  private readonly listAllStatement: StatementSync;
 
-  add(relation: StoredRelation): void {
-    const statement = this.sqlite.handle.prepare(`
+  constructor(private readonly sqlite: SQLiteDatabase) {
+    this.addStatement = this.sqlite.handle.prepare(`
       INSERT INTO relations (src, dst, type, timestamp, confidence)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(src, dst, type) DO UPDATE SET
         timestamp=excluded.timestamp,
         confidence=excluded.confidence
     `);
-    statement.run(
+    this.listOutgoingStatement = this.sqlite.handle.prepare(`
+      SELECT src, dst, type, timestamp, confidence
+      FROM relations WHERE src = ?
+      ORDER BY timestamp DESC
+    `);
+    this.listIncomingStatement = this.sqlite.handle.prepare(`
+      SELECT src, dst, type, timestamp, confidence
+      FROM relations WHERE dst = ?
+      ORDER BY timestamp DESC
+    `);
+    this.listAllStatement = this.sqlite.handle.prepare(`
+      SELECT src, dst, type, timestamp, confidence
+      FROM relations ORDER BY timestamp ASC
+    `);
+  }
+
+  add(relation: StoredRelation): void {
+    this.addStatement.run(
       relation.src,
       relation.dst,
       relation.type,
@@ -31,31 +52,17 @@ export class SQLiteRelationStore implements IRelationStore {
   }
 
   listOutgoing(src: BlockId): StoredRelation[] {
-    const statement = this.sqlite.handle.prepare(`
-      SELECT src, dst, type, timestamp, confidence
-      FROM relations WHERE src = ?
-      ORDER BY timestamp DESC
-    `);
-    const rows = statement.all(src) as RelationRow[];
+    const rows = this.listOutgoingStatement.all(src) as RelationRow[];
     return rows.map(toStoredRelation);
   }
 
   listIncoming(dst: BlockId): StoredRelation[] {
-    const statement = this.sqlite.handle.prepare(`
-      SELECT src, dst, type, timestamp, confidence
-      FROM relations WHERE dst = ?
-      ORDER BY timestamp DESC
-    `);
-    const rows = statement.all(dst) as RelationRow[];
+    const rows = this.listIncomingStatement.all(dst) as RelationRow[];
     return rows.map(toStoredRelation);
   }
 
   listAll(): StoredRelation[] {
-    const statement = this.sqlite.handle.prepare(`
-      SELECT src, dst, type, timestamp, confidence
-      FROM relations ORDER BY timestamp ASC
-    `);
-    const rows = statement.all() as RelationRow[];
+    const rows = this.listAllStatement.all() as RelationRow[];
     return rows.map(toStoredRelation);
   }
 }

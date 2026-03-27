@@ -3,7 +3,8 @@ import { BuiltinAgentToolExecutor } from "./agent/AgentToolExecutor.js";
 import { buildProvider } from "./agent/providerFactory.js";
 import type { AppConfig, DeepPartial } from "./config.js";
 import { loadConfig } from "./config.js";
-import { InMemoryDebugTraceRecorder } from "./debug/DebugTraceRecorder.js";
+import type { IDebugTraceRecorder } from "./debug/DebugTraceRecorder.js";
+import { InMemoryDebugTraceRecorder, NoopDebugTraceRecorder } from "./debug/DebugTraceRecorder.js";
 import { InvertedIndex } from "./memory/InvertedIndex.js";
 import { PartitionMemoryManager } from "./memory/PartitionMemoryManager.js";
 import { RelationGraph } from "./memory/RelationGraph.js";
@@ -13,6 +14,7 @@ import type { IChunkStrategy } from "./memory/chunking/IChunkStrategy.js";
 import { SemanticBoundaryChunkStrategy } from "./memory/chunking/SemanticBoundaryChunkStrategy.js";
 import { HashEmbedder } from "./memory/embedder/HashEmbedder.js";
 import { HistoryMatchCalculator } from "./memory/management/HistoryMatchCalculator.js";
+import { buildTagger } from "./memory/tagger/taggerFactory.js";
 import {
   CompressAction,
   ConflictAction,
@@ -39,6 +41,9 @@ import { KeywordRetriever } from "./memory/retrieval/KeywordRetriever.js";
 import { FusionRetriever } from "./memory/retrieval/FusionRetriever.js";
 import { GraphRetriever } from "./memory/retrieval/GraphRetriever.js";
 import { VectorRetriever } from "./memory/retrieval/VectorRetriever.js";
+import { SQLiteFileAccessRecorder } from "./memory/file/SQLiteFileAccessRecorder.js";
+import { NoopFileAccessRecorder } from "./memory/file/NoopFileAccessRecorder.js";
+import type { IFileAccessRecorder } from "./memory/file/FileAccessRecorder.js";
 import { buildRelationExtractor } from "./memory/relation/relationExtractorFactory.js";
 import type { IRelationStore } from "./memory/relation/IRelationStore.js";
 import { SQLiteDatabase } from "./memory/sqlite/SQLiteDatabase.js";
@@ -52,6 +57,9 @@ import { InMemoryVectorStore } from "./memory/vector/InMemoryVectorStore.js";
 import { HttpSearchProvider } from "./search/HttpSearchProvider.js";
 import { HttpWebPageFetcher } from "./search/HttpWebPageFetcher.js";
 import { SearchIngestScheduler } from "./search/SearchIngestScheduler.js";
+import { ProactiveDialoguePlanner } from "./proactive/ProactiveDialoguePlanner.js";
+import { ProactiveActuator } from "./proactive/ProactiveActuator.js";
+import { ProactiveTimerScheduler } from "./proactive/ProactiveTimerScheduler.js";
 
 type Factory<T> = () => T;
 
@@ -114,8 +122,11 @@ export function createRuntime(
 
   container.register("config", () => config);
   container.register("debugTraceRecorder", () => {
+    if (!config.component.debugTraceEnabled) {
+      return new NoopDebugTraceRecorder();
+    }
     return new InMemoryDebugTraceRecorder({
-      enabled: config.component.debugTraceEnabled,
+      enabled: true,
       maxEntries: Math.max(200, config.component.debugTraceMaxEntries)
     });
   });
@@ -133,7 +144,12 @@ export function createRuntime(
   container.register("summarizer", () => new HeuristicSummarizer());
   container.register("embedder", () => new HashEmbedder(256));
   container.register("chunkStrategy", () => buildChunkStrategy(config));
-  container.register("relationExtractor", () => buildRelationExtractor(config));
+  container.register("relationExtractor", () => {
+    return buildRelationExtractor(config, container.resolve("debugTraceRecorder"));
+  });
+  container.register("tagger", () => {
+    return buildTagger(config, container.resolve("debugTraceRecorder"));
+  });
   container.register("historyMatchCalculator", () => {
     return new HistoryMatchCalculator(container.resolve("relationGraph"));
   });
@@ -160,7 +176,8 @@ export function createRuntime(
       embedder: container.resolve("embedder"),
       rawStore: container.resolve("rawStore"),
       historyMatchCalculator: container.resolve("historyMatchCalculator"),
-      retentionPolicy: container.resolve("retentionPolicy")
+      retentionPolicy: container.resolve("retentionPolicy"),
+      tagger: container.resolve("tagger")
     });
   });
   container.register("contextAssembler", () => new ContextAssembler());
@@ -239,7 +256,7 @@ export function createRuntime(
     return new HttpSearchProvider({
       endpoint: config.component.searchEndpoint,
       apiKey: config.component.searchApiKey,
-      providerName: "http",
+      providerName: config.component.searchProvider,
       timeoutMs: Math.max(1000, config.component.searchTimeoutMs)
     });
   });
@@ -251,20 +268,51 @@ export function createRuntime(
     });
   });
   container.register("searchScheduler", () => {
+    const traceRecorder = container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
     return new SearchIngestScheduler({
       memoryManager: container.resolve("memoryManager"),
       searchProvider: container.resolve("searchProvider"),
       enabled: config.manager.searchAugmentMode === "scheduled",
       intervalMinutes: Math.max(1, config.manager.searchScheduleMinutes),
       seeds: config.component.searchSeedQueries,
-      topK: Math.max(1, config.manager.searchTopK)
+      topK: Math.max(1, config.manager.searchTopK),
+      trace: (event, payload) => {
+        traceRecorder.record("search.scheduler", event, payload);
+      }
+    });
+  });
+  container.register("fileAccessRecorder", () => {
+    const sqliteEnabled =
+      config.component.storageBackend === "sqlite" ||
+      config.component.rawStoreBackend === "sqlite" ||
+      config.component.relationStoreBackend === "sqlite";
+    if (sqliteEnabled) {
+      return new SQLiteFileAccessRecorder(getSQLiteDatabase());
+    }
+    return new NoopFileAccessRecorder();
+  });
+  container.register("proactivePlanner", () => {
+    return new ProactiveDialoguePlanner({
+      proactiveWakeupRequireEvidence: config.manager.proactiveWakeupRequireEvidence,
+      proactiveWakeupMinIntervalSeconds: Math.max(0, config.manager.proactiveWakeupMinIntervalSeconds),
+      proactiveWakeupMaxPerHour: Math.max(1, config.manager.proactiveWakeupMaxPerHour)
+    });
+  });
+  container.register("proactiveActuator", () => {
+    return new ProactiveActuator({
+      memoryManager: container.resolve("memoryManager"),
+      searchProvider: container.resolve("searchProvider"),
+      webPageFetcher: container.resolve("webPageFetcher"),
+      searchTopK: Math.max(1, config.manager.searchTopK)
     });
   });
   container.register("toolExecutor", () => {
     return new BuiltinAgentToolExecutor({
-      workspaceRoot: process.cwd(),
+      workspaceRoot: options.workspaceRoot ?? process.cwd(),
       memoryManager: container.resolve("memoryManager"),
       traceRecorder: container.resolve("debugTraceRecorder"),
+      relationStore: container.resolve("relationStore"),
+      fileAccessRecorder: container.resolve<IFileAccessRecorder>("fileAccessRecorder"),
       searchProvider: container.resolve("searchProvider"),
       webPageFetcher: container.resolve("webPageFetcher"),
       searchAugmentMode: config.manager.searchAugmentMode,
@@ -280,7 +328,25 @@ export function createRuntime(
       includeIntroductionWhenNoMemory: options.includeIntroductionWhenNoMemory,
       introductionPath: options.introductionPath,
       toolExecutor: options.enableAgentTools === false ? undefined : container.resolve("toolExecutor"),
-      traceRecorder: container.resolve("debugTraceRecorder")
+      traceRecorder: container.resolve("debugTraceRecorder"),
+      proactivePlanner:
+        config.manager.searchAugmentMode === "predictive" && config.manager.proactiveWakeupEnabled
+          ? container.resolve("proactivePlanner")
+          : undefined,
+      proactiveActuator:
+        config.manager.searchAugmentMode === "predictive" && config.manager.proactiveWakeupEnabled
+          ? container.resolve("proactiveActuator")
+          : undefined
+    });
+  });
+  container.register("proactiveTimerScheduler", () => {
+    return new ProactiveTimerScheduler({
+      agent: container.resolve("agent"),
+      enabled:
+        config.manager.searchAugmentMode === "predictive" &&
+        config.manager.proactiveWakeupEnabled &&
+        config.manager.proactiveTimerEnabled,
+      intervalSeconds: Math.max(1, config.manager.proactiveTimerIntervalSeconds)
     });
   });
 
@@ -288,13 +354,16 @@ export function createRuntime(
   const memoryManager = container.resolve<PartitionMemoryManager>("memoryManager");
   let closed = false;
   const scheduler = container.resolve<SearchIngestScheduler>("searchScheduler");
+  const proactiveTimerScheduler = container.resolve<ProactiveTimerScheduler>("proactiveTimerScheduler");
   scheduler.start();
+  proactiveTimerScheduler.start();
 
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
 
     await scheduler.stop();
+    await proactiveTimerScheduler.stop();
     await memoryManager.flushAsyncRelations();
     if (sqliteDatabase) {
       sqliteDatabase.close();

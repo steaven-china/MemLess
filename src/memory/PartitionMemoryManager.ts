@@ -14,7 +14,9 @@ import type {
   ManagerConfig,
   MemoryEvent,
   PredictedIntent,
-  PredictionResult
+  PredictionResult,
+  ProactiveSignal,
+  ProactiveTriggerSource
 } from "../types.js";
 import { createId } from "../utils/id.js";
 import { extractKeywords, hasDirectionalIntent, normalizeText } from "../utils/text.js";
@@ -54,6 +56,7 @@ export interface PartitionMemoryManagerDeps {
 }
 
 export class PartitionMemoryManager implements IMemoryManager {
+  private static readonly TIMER_PROBE_QUERY = "__mlex_proactive_timer_probe__";
   private activeBlock: MemoryBlock;
   private readonly blockTable = new Map<string, MemoryBlock>();
   private readonly keywordIndex: InvertedIndex;
@@ -61,6 +64,7 @@ export class PartitionMemoryManager implements IMemoryManager {
   private readonly relationQueue: AsyncRelationQueue;
   private lastSealedBlockId?: string;
   private lastPrediction?: PredictionResult;
+  private lastProactiveSignal?: ProactiveSignal;
   private lastEventTimestampMs = 0;
   private lastRelationTimestampMs = 0;
   private firstMessageUtc?: number;
@@ -72,6 +76,7 @@ export class PartitionMemoryManager implements IMemoryManager {
     { confidence: number; createdAtUtc: number }
   >();
   private readonly hydrationPromise: Promise<void>;
+  private proactiveTickRunning = false;
 
   constructor(private readonly deps: PartitionMemoryManagerDeps) {
     this.keywordIndex = deps.keywordIndex ?? new InvertedIndex();
@@ -81,15 +86,7 @@ export class PartitionMemoryManager implements IMemoryManager {
       deps.relationExtractor,
       this.relationGraph,
       async (block, limit) => {
-        const candidates = [...this.blockTable.values()]
-          .filter((item) => item.id !== block.id)
-          .map((item) => ({
-            item,
-            score: computeNeighborScore(block, item)
-          }))
-          .sort((a, b) => b.score - a.score)
-          .slice(0, limit);
-        return candidates.map((entry) => entry.item);
+        return selectTopNeighbors(block, this.blockTable.values(), limit);
       },
       {
         maxNeighbors: Math.max(1, this.deps.config.semanticTopK),
@@ -123,12 +120,17 @@ export class PartitionMemoryManager implements IMemoryManager {
     }
   }
 
-  async getContext(query: string): Promise<Context> {
+  async getContext(query: string, triggerSource: ProactiveTriggerSource = "user"): Promise<Context> {
     await this.hydrationPromise;
-    const blocks = await this.retrieveBlocks(query);
+    const blocks = await this.retrieveBlocks(query, triggerSource);
     const hydrated = await this.deps.backtracker.fillRawEvents(blocks);
-    const recentEvents = this.activeBlock.rawEvents.slice(-this.deps.config.recentEventWindow);
-    return this.deps.contextAssembler.assemble(hydrated, recentEvents, this.lastPrediction);
+    const recentEvents = this.collectRecentEvents();
+    return this.deps.contextAssembler.assemble(
+      hydrated,
+      recentEvents,
+      this.lastPrediction,
+      this.lastProactiveSignal
+    );
   }
 
   async sealCurrentBlock(): Promise<void> {
@@ -164,7 +166,7 @@ export class PartitionMemoryManager implements IMemoryManager {
     this.activeBlock = this.createEmptyBlock();
   }
 
-  async retrieveBlocks(query: string): Promise<BlockRef[]> {
+  async retrieveBlocks(query: string, triggerSource: ProactiveTriggerSource = "user"): Promise<BlockRef[]> {
     await this.hydrationPromise;
     const keywords = this.extractKeywords(query);
     const embedding = this.embed(query);
@@ -188,7 +190,8 @@ export class PartitionMemoryManager implements IMemoryManager {
     const prediction = await this.applyProactivePredictionGate(
       rawPrediction,
       embedding,
-      initial.semanticSeedIds
+      initial.semanticSeedIds,
+      triggerSource
     );
     this.lastPrediction = prediction;
     if (prediction?.activeTrigger) {
@@ -218,6 +221,7 @@ export class PartitionMemoryManager implements IMemoryManager {
         startTime: block.startTime,
         endTime: block.endTime,
         keywords: block.keywords,
+        tags: block.tags,
         rawEvents: block.rawEvents,
         retentionMode: block.retentionMode,
         matchScore: block.matchScore,
@@ -225,6 +229,22 @@ export class PartitionMemoryManager implements IMemoryManager {
       });
     }
     return refs;
+  }
+
+  async tickProactiveWakeup(): Promise<void> {
+    await this.hydrationPromise;
+    if (!this.deps.config.proactiveWakeupEnabled) return;
+    if (this.proactiveTickRunning) return;
+    this.proactiveTickRunning = true;
+    try {
+      await this.retrieveBlocks(PartitionMemoryManager.TIMER_PROBE_QUERY, "timer");
+    } finally {
+      this.proactiveTickRunning = false;
+    }
+  }
+
+  getActiveBlockId(): string | undefined {
+    return this.activeBlock.rawEvents.length > 0 ? this.activeBlock.id : this.lastSealedBlockId;
   }
 
   async flushAsyncRelations(): Promise<void> {
@@ -252,7 +272,34 @@ export class PartitionMemoryManager implements IMemoryManager {
     const roleSwitchBoundary = lastEvent.role !== nextEvent.role;
     if (!roleSwitchBoundary) return false;
 
-    return this.activeBlock.tokenCount >= Math.max(1, config.proactiveSealMinTokens);
+    const turnBoundaryMinTokens = Math.max(
+      config.proactiveSealMinTokens,
+      this.deps.config.minTokensPerBlock
+    );
+    return this.activeBlock.tokenCount >= turnBoundaryMinTokens;
+  }
+
+  private collectRecentEvents(): MemoryEvent[] {
+    const window = Math.max(0, this.deps.config.recentEventWindow);
+    if (window === 0) return [];
+    if (this.blockTable.size === 0) {
+      return this.activeBlock.rawEvents.slice(-window);
+    }
+
+    const events = [...this.activeBlock.rawEvents];
+    const sealedBlocks = [...this.blockTable.values()].sort((a, b) => b.endTime - a.endTime);
+    for (const block of sealedBlocks) {
+      if (events.length >= window) break;
+      for (let index = block.rawEvents.length - 1; index >= 0; index -= 1) {
+        const event = block.rawEvents[index];
+        if (!event) continue;
+        events.unshift(event);
+        if (events.length >= window) break;
+      }
+    }
+
+    if (events.length <= window) return events;
+    return events.slice(-window);
   }
 
   private extractKeywords(text: string): string[] {
@@ -322,15 +369,50 @@ export class PartitionMemoryManager implements IMemoryManager {
   private async applyProactivePredictionGate(
     prediction: PredictionResult | undefined,
     queryEmbedding: number[],
-    semanticSeedIds: string[]
+    semanticSeedIds: string[],
+    triggerSource: ProactiveTriggerSource
   ): Promise<PredictionResult | undefined> {
-    if (!prediction) return undefined;
-    if (!prediction.activeTrigger) return prediction;
+    if (!prediction) {
+      this.lastProactiveSignal = {
+        allowWakeup: false,
+        mode: "none",
+        intents: [],
+        reason: "no_prediction",
+        evidenceNeedHint: "none",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
+      return undefined;
+    }
+    if (!prediction.activeTrigger) {
+      this.lastProactiveSignal = {
+        allowWakeup: false,
+        mode: "none",
+        intents: prediction.intents,
+        reason: "inactive_prediction",
+        evidenceNeedHint: "none",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
+      return prediction;
+    }
     const nowUtc = nowUtcSeconds();
     const lastMsgUtc = this.prevMessageUtc ?? this.lastMessageUtc ?? nowUtc;
     const firstMsgUtc = this.firstMessageUtc ?? lastMsgUtc;
     const timingDecision = proactivePolicy(nowUtc, lastMsgUtc, firstMsgUtc, this.lastTriggerUtc);
     if (!timingDecision.allow) {
+      this.lastProactiveSignal = {
+        allowWakeup: false,
+        mode: "none",
+        intents: prediction.intents,
+        reason: `timing_blocked:${timingDecision.reason ?? "unknown"}`,
+        evidenceNeedHint: "none",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
       return {
         ...prediction,
         activeTrigger: false
@@ -339,6 +421,16 @@ export class PartitionMemoryManager implements IMemoryManager {
 
     const topSemanticId = semanticSeedIds[0];
     if (!topSemanticId) {
+      this.lastProactiveSignal = {
+        allowWakeup: false,
+        mode: "none",
+        intents: prediction.intents,
+        reason: "missing_semantic_seed",
+        evidenceNeedHint: "none",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
       return {
         ...prediction,
         activeTrigger: false
@@ -354,6 +446,16 @@ export class PartitionMemoryManager implements IMemoryManager {
       timingDecision.mode === "prefetch" ? PREFETCH_RETRIEVE_THRESHOLDS : undefined
     );
     if (!passed) {
+      this.lastProactiveSignal = {
+        allowWakeup: false,
+        mode: "none",
+        intents: prediction.intents,
+        reason: "retrieve_gate_blocked",
+        evidenceNeedHint: "none",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
       return {
         ...prediction,
         activeTrigger: false
@@ -366,6 +468,16 @@ export class PartitionMemoryManager implements IMemoryManager {
 
     if (timingDecision.mode === "prefetch") {
       this.stagePrefetch(intents, nowUtc);
+      this.lastProactiveSignal = {
+        allowWakeup: false,
+        mode: "prefetch",
+        intents,
+        reason: "prefetch_only",
+        evidenceNeedHint: "none",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
       return {
         ...prediction,
         activeTrigger: false,
@@ -376,6 +488,19 @@ export class PartitionMemoryManager implements IMemoryManager {
 
     clearPrefetchedIntents(this.prefetchedIntents);
     this.lastTriggerUtc = nowUtc;
+    const evidenceNeedHint = this.deps.config.proactiveWakeupRequireEvidence
+      ? "search_required"
+      : "search_optional";
+    this.lastProactiveSignal = {
+      allowWakeup: true,
+      mode: "inject",
+      intents,
+      reason: "inject_ready",
+      evidenceNeedHint,
+      triggerSource,
+      timerEnabled: this.deps.config.proactiveTimerEnabled,
+      timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+    };
 
     return {
       ...prediction,
@@ -444,6 +569,35 @@ function computeNeighborScore(current: MemoryBlock, candidate: MemoryBlock): num
   const lexical = keywordOverlapScore(current.keywords, candidate.keywords);
   const recency = recencyAffinity(current.endTime, candidate.endTime);
   return lexical * 0.7 + recency * 0.3;
+}
+
+function selectTopNeighbors(
+  current: MemoryBlock,
+  candidates: Iterable<MemoryBlock>,
+  limit: number
+): MemoryBlock[] {
+  if (limit <= 0) return [];
+  const top: Array<{ item: MemoryBlock; score: number }> = [];
+
+  for (const candidate of candidates) {
+    if (candidate.id === current.id) continue;
+    const score = computeNeighborScore(current, candidate);
+
+    if (top.length < limit) {
+      top.push({ item: candidate, score });
+      top.sort((left, right) => left.score - right.score);
+      continue;
+    }
+
+    const weakest = top[0];
+    if (!weakest || score <= weakest.score) continue;
+    top[0] = { item: candidate, score };
+    top.sort((left, right) => left.score - right.score);
+  }
+
+  return top
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.item);
 }
 
 function keywordOverlapScore(left: string[], right: string[]): number {

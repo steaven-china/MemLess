@@ -1,4 +1,4 @@
-import type { SearchQuery, SearchRecord, ISearchProvider } from "./ISearchProvider.js";
+import type { SearchQuery, SearchRecord, SearchResponse, ISearchProvider } from "./ISearchProvider.js";
 
 interface HttpSearchProviderConfig {
   endpoint?: string;
@@ -19,9 +19,15 @@ interface SearchApiResponse {
 export class HttpSearchProvider implements ISearchProvider {
   constructor(private readonly config: HttpSearchProviderConfig) {}
 
-  async search(input: SearchQuery): Promise<SearchRecord[]> {
+  async search(input: SearchQuery): Promise<SearchResponse> {
     const endpoint = this.config.endpoint?.trim();
-    if (!endpoint) return [];
+    if (!endpoint) {
+      return {
+        records: [],
+        status: "not_configured",
+        error: "search endpoint is not configured"
+      };
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -42,11 +48,16 @@ export class HttpSearchProvider implements ISearchProvider {
         signal: controller.signal
       });
       if (!response.ok) {
-        return [];
+        return {
+          records: [],
+          status: "http_error",
+          error: `search provider http error: ${response.status}`,
+          httpStatus: response.status
+        };
       }
       const payload = (await response.json()) as SearchApiResponse;
       const now = Date.now();
-      return (payload.results ?? [])
+      const records: SearchRecord[] = (payload.results ?? [])
         .slice(0, input.limit)
         .map((item, index) => ({
           title: (item.title ?? "").trim(),
@@ -57,8 +68,17 @@ export class HttpSearchProvider implements ISearchProvider {
           fetchedAt: now
         }))
         .filter((item) => item.url.length > 0 && (item.title.length > 0 || item.snippet.length > 0));
-    } catch {
-      return [];
+      return {
+        records,
+        status: records.length === 0 ? "ok_empty" : "ok"
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        records: [],
+        status: "request_error",
+        error: `search provider request error: ${message}`
+      };
     } finally {
       clearTimeout(timer);
     }

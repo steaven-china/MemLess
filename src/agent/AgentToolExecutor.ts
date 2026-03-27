@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
 import { ReadonlyFileService } from "../files/ReadonlyFileService.js";
+import type { IFileAccessRecorder } from "../memory/file/FileAccessRecorder.js";
 import type { IMemoryManager } from "../memory/IMemoryManager.js";
-import type { SearchAugmentMode } from "../types.js";
-import type { ISearchProvider, SearchRecord } from "../search/ISearchProvider.js";
+import { RelationType, type SearchAugmentMode } from "../types.js";
+import type { ISearchProvider, SearchResponse } from "../search/ISearchProvider.js";
 import type { IWebPageFetcher } from "../search/IWebPageFetcher.js";
 import { createId } from "../utils/id.js";
 
@@ -32,6 +34,16 @@ export interface BuiltinAgentToolExecutorConfig {
   webPageFetcher?: IWebPageFetcher;
   searchAugmentMode?: SearchAugmentMode;
   searchTopK?: number;
+  relationStore?: {
+    add: (relation: {
+      src: string;
+      dst: string;
+      type: RelationType;
+      timestamp: number;
+      confidence?: number;
+    }) => Promise<void> | void;
+  };
+  fileAccessRecorder?: IFileAccessRecorder;
 }
 
 export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
@@ -66,6 +78,7 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       const pathInput = asString(call.args.path) ?? ".";
       const maxEntries = clampInt(call.args.maxEntries, 200, 1, 1000);
       const entries = await this.fileService.list(pathInput, maxEntries);
+      await this.recordReadonlyList(pathInput, maxEntries, entries);
       const result = {
         ok: true,
         content: JSON.stringify({ path: pathInput, entries }, null, 2)
@@ -86,6 +99,7 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       }
       const maxBytes = clampInt(call.args.maxBytes, 64 * 1024, 256, 2 * 1024 * 1024);
       const result = await this.fileService.read(pathInput, maxBytes);
+      await this.recordReadonlyRead(pathInput, maxBytes, result);
       const output = {
         ok: true,
         content: JSON.stringify(result, null, 2)
@@ -179,7 +193,15 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
 
       const finalQuery = keywords.length > 0 ? `${query} ${keywords.join(" ")}` : query;
       if (this.config.searchAugmentMode === "auto") {
-        await this.searchAndRecord(finalQuery, this.config.searchTopK ?? 5);
+        const searchResponse = await this.searchAndRecord(finalQuery, this.config.searchTopK ?? 5);
+        if (searchResponse.status !== "ok" && searchResponse.status !== "ok_empty") {
+          this.config.traceRecorder?.record("tool", "search.auto.failed", {
+            query: finalQuery,
+            status: searchResponse.status,
+            error: searchResponse.error,
+            httpStatus: searchResponse.httpStatus
+          });
+        }
       }
       const context = await this.config.memoryManager.getContext(finalQuery);
       const selectedBlocks = context.blocks.slice(0, topBlocks).map((block) => ({
@@ -238,8 +260,8 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       }
       const limit = clampInt(call.args.limit, this.config.searchTopK ?? 5, 1, 10);
       const includeSnippets = asBoolean(call.args.includeSnippets, true);
-      const records = await this.searchAndRecord(query, limit);
-      const output = records.map((item) => ({
+      const searchResponse = await this.searchAndRecord(query, limit);
+      const output = searchResponse.records.map((item) => ({
         rank: item.rank,
         title: item.title,
         url: item.url,
@@ -247,11 +269,15 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
         snippet: includeSnippets ? item.snippet : undefined,
         fetchedAt: item.fetchedAt
       }));
+      const success = searchResponse.status === "ok" || searchResponse.status === "ok_empty";
       const result = {
-        ok: true,
+        ok: success,
         content: JSON.stringify(
           {
             query,
+            status: searchResponse.status,
+            error: searchResponse.error,
+            httpStatus: searchResponse.httpStatus,
             count: output.length,
             records: output
           },
@@ -277,27 +303,34 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       }
       const maxChars = clampInt(call.args.maxChars, 12_000, 256, 120_000);
       const page = await this.config.webPageFetcher.fetch(url);
+      const success = page.status === "ok";
       const content = truncateText(page.content, maxChars);
-      await this.config.memoryManager.addEvent({
-        id: createId("event"),
-        role: "tool",
-        text: `web fetch\nurl: ${page.url}\ntitle: ${page.title ?? ""}\n${content}`.trim(),
-        timestamp: Date.now(),
-        metadata: {
-          tool: "web.fetch.record",
-          url: page.url,
-          title: page.title,
-          fetchedAt: page.fetchedAt,
-          truncated: content !== page.content
-        }
-      });
+      if (success) {
+        await this.config.memoryManager.addEvent({
+          id: createId("event"),
+          role: "tool",
+          text: `web fetch\nurl: ${page.url}\ntitle: ${page.title ?? ""}\n${content}`.trim(),
+          timestamp: Date.now(),
+          metadata: {
+            tool: "web.fetch.record",
+            url: page.url,
+            title: page.title,
+            fetchedAt: page.fetchedAt,
+            truncated: content !== page.content,
+            status: page.status
+          }
+        });
+      }
       const result = {
-        ok: true,
+        ok: success,
         content: JSON.stringify(
           {
             url: page.url,
             title: page.title ?? null,
             content,
+            status: page.status,
+            error: page.error,
+            httpStatus: page.httpStatus,
             truncated: content !== page.content,
             fetchedAt: page.fetchedAt
           },
@@ -317,13 +350,19 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     return result;
   }
 
-  private async searchAndRecord(query: string, limit: number): Promise<SearchRecord[]> {
-    if (!this.config.searchProvider) return [];
+  private async searchAndRecord(query: string, limit: number): Promise<SearchResponse> {
+    if (!this.config.searchProvider) {
+      return {
+        records: [],
+        status: "not_configured",
+        error: "search provider is not configured"
+      };
+    }
 
-    const records = await this.config.searchProvider.search({ query, limit });
-    if (records.length === 0) return [];
+    const response = await this.config.searchProvider.search({ query, limit });
+    if (response.records.length === 0) return response;
 
-    const summary = records
+    const summary = response.records
       .map((item) => `${item.rank}. ${item.title} | ${item.url} | ${item.snippet}`)
       .join("\n");
 
@@ -336,12 +375,120 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
         tool: "web.search.record",
         mode: this.config.searchAugmentMode ?? "lazy",
         query,
-        count: records.length,
-        records
+        count: response.records.length,
+        records: response.records
       }
     });
 
-    return records;
+    return response;
+  }
+
+  private async recordReadonlyList(
+    pathInput: string,
+    maxEntries: number,
+    entries: Array<{ path: string; type: string; sizeBytes?: number; modifiedAt?: number }>
+  ): Promise<void> {
+    const summary = entries
+      .slice(0, 20)
+      .map((entry) => `${entry.type}: ${entry.path}`)
+      .join("\n");
+    await this.config.memoryManager.addEvent({
+      id: createId("event"),
+      role: "tool",
+      text: `readonly list\ncwd: ${this.config.workspaceRoot}\npath: ${pathInput}\ncount: ${entries.length}${summary ? `\n${summary}` : ""}`,
+      timestamp: Date.now(),
+      metadata: {
+        tool: "readonly.list",
+        cwd: this.config.workspaceRoot,
+        path: pathInput,
+        maxEntries,
+        count: entries.length,
+        entries
+      }
+    });
+  }
+
+  private async recordReadonlyRead(
+    pathInput: string,
+    maxBytes: number,
+    result: {
+      path: string;
+      text: string;
+      bytes: number;
+      totalBytes: number;
+      truncated: boolean;
+      modifiedAt?: number;
+    }
+  ): Promise<void> {
+    const now = Date.now();
+    const contentHash = createHash("sha256").update(result.text).digest("hex");
+    const prefixHash = createHash("sha256").update(result.text.slice(0, 2048)).digest("hex");
+    const suffixHash = createHash("sha256").update(result.text.slice(-2048)).digest("hex");
+    const nearDuplicateKey = `${result.totalBytes}:${prefixHash}:${suffixHash}`;
+    const versionKey = `${result.totalBytes}:${contentHash}`;
+    const fileEntityId = `file:${result.path}`;
+    const snapshotId = `snapshot:${result.path}#${versionKey}`;
+    const activeBlockId = this.config.memoryManager.getActiveBlockId?.();
+
+    if (this.config.fileAccessRecorder) {
+      await this.config.fileAccessRecorder.recordRead({
+        fileId: fileEntityId,
+        snapshotId,
+        versionKey,
+        filePath: result.path,
+        contentHash,
+        nearDuplicateKey,
+        sizeBytes: result.totalBytes,
+        bytesRead: result.bytes,
+        truncated: result.truncated,
+        modifiedAt: result.modifiedAt,
+        timestamp: now,
+        embedding: embedReadText(result.text)
+      });
+    }
+
+    if (this.config.relationStore) {
+      await this.config.relationStore.add({
+        src: snapshotId,
+        dst: fileEntityId,
+        type: RelationType.SNAPSHOT_OF_FILE,
+        timestamp: now,
+        confidence: 1
+      });
+      if (activeBlockId) {
+        await this.config.relationStore.add({
+          src: fileEntityId,
+          dst: activeBlockId,
+          type: RelationType.FILE_MENTIONS_BLOCK,
+          timestamp: now + 1,
+          confidence: 0.8
+        });
+      }
+    }
+
+    await this.config.memoryManager.addEvent({
+      id: createId("event"),
+      role: "tool",
+      text: `readonly read\ncwd: ${this.config.workspaceRoot}\npath: ${result.path}\nbytes: ${result.bytes}/${result.totalBytes}\ntruncated: ${result.truncated}`,
+      timestamp: now,
+      metadata: {
+        tool: "readonly.read",
+        cwd: this.config.workspaceRoot,
+        path: result.path,
+        requestedPath: pathInput,
+        maxBytes,
+        bytes: result.bytes,
+        totalBytes: result.totalBytes,
+        truncated: result.truncated,
+        modifiedAt: result.modifiedAt,
+        contentHash,
+        sizeBytes: result.totalBytes,
+        nearDuplicateKey,
+        versionKey,
+        fileEntityId,
+        snapshotId
+      }
+    });
   }
 }
 
@@ -475,6 +622,21 @@ function clampInt(
 function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n...[truncated]`;
+}
+
+function embedReadText(text: string): number[] {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return new Array(32).fill(0);
+  }
+  const bins = new Array(32).fill(0);
+  for (let index = 0; index < normalized.length; index += 1) {
+    const code = normalized.charCodeAt(index);
+    bins[index % bins.length] += code;
+  }
+  const norm = Math.sqrt(bins.reduce((sum, value) => sum + value * value, 0));
+  if (norm === 0) return bins;
+  return bins.map((value) => value / norm);
 }
 
 type HistoryQueryMode = "hybrid" | "recent" | "semantic";

@@ -35,7 +35,8 @@ export class ChromaBlockStore implements IBlockStore {
           rawEvents: block.rawEvents,
           retentionMode: block.retentionMode,
           matchScore: block.matchScore,
-          conflict: block.conflict
+          conflict: block.conflict,
+          tags: block.tags
         }
       ],
       embeddings: [block.embedding]
@@ -156,6 +157,7 @@ function deserializeBlock(input: {
   block.retentionMode = parseRetentionMode(input.metadata.retentionMode);
   block.matchScore = asFiniteNumber(input.metadata.matchScore, 0);
   block.conflict = asBoolean(input.metadata.conflict);
+  block.tags = normalizeTags(input.metadata.tags);
   return block;
 }
 
@@ -225,4 +227,18 @@ function parseRole(value: unknown): EventRole | undefined {
     return value;
   }
   return undefined;
+}
+
+function normalizeTags(value: unknown): Array<"important" | "normal"> {
+  const output: Array<"important" | "normal"> = [];
+  if (Array.isArray(value)) {
+    for (const tag of value) {
+      if ((tag === "important" || tag === "normal") && !output.includes(tag)) {
+        output.push(tag);
+      }
+    }
+  }
+  if (output.includes("important")) return ["important"];
+  if (output.includes("normal")) return ["normal"];
+  return ["normal"];
 }
