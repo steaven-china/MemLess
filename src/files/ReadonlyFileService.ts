@@ -25,12 +25,10 @@ export interface ReadFileResult {
 
 export class ReadonlyFileService {
   private readonly rootPath: string;
-  private readonly maxReadBytes: number;
   private readonly maxListEntries: number;
 
   constructor(config: ReadonlyFileServiceConfig) {
     this.rootPath = resolve(config.rootPath);
-    this.maxReadBytes = config.maxReadBytes ?? 64 * 1024;
     this.maxListEntries = config.maxListEntries ?? 200;
   }
 
@@ -90,7 +88,8 @@ export class ReadonlyFileService {
     }
 
     const content = await fs.readFile(resolved.absolutePath);
-    const limit = Math.max(1, Math.min(maxBytes ?? this.maxReadBytes, 2 * 1024 * 1024));
+    const parsedMaxBytes = typeof maxBytes === "number" && Number.isFinite(maxBytes) ? Math.floor(maxBytes) : undefined;
+    const limit = parsedMaxBytes !== undefined ? Math.max(1, parsedMaxBytes) : content.byteLength;
     const truncated = content.byteLength > limit;
     const payload = truncated ? content.subarray(0, limit) : content;
 

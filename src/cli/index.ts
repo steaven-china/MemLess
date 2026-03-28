@@ -168,7 +168,7 @@ program
   .command("files:read")
   .description(i18n.t("cli.files.read.description"))
   .argument("<path>", i18n.t("cli.files.read.arg_path"))
-  .option("--max-bytes <number>", optionDescriptions.maxBytes, "65536")
+  .option("--max-bytes <number>", optionDescriptions.maxBytes)
   .action(async (pathInput: string, options) => {
     const fileService = new ReadonlyFileService({ rootPath: process.cwd() });
     const maxBytes = parseOptionalNumber(asOptionalString(options.maxBytes));

@@ -136,4 +136,5 @@ export interface ManagerConfig {
   proactiveWakeupRequireEvidence: boolean;
   proactiveTimerEnabled: boolean;
   proactiveTimerIntervalSeconds: number;
+  agentMaxToolRounds: number;
 }

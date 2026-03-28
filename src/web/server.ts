@@ -129,12 +129,14 @@ async function routeRequest(
       at: Date.now(),
       context: result.context
     };
+    const latestReadFilePath = extractLatestReadonlyReadPath(result.context);
     const payload: Record<string, unknown> = {
       reply: result.text,
       proactiveReply: result.proactiveText ?? null,
       context: result.context.formatted,
       blocks: result.context.blocks,
-      prediction: result.context.prediction ?? null
+      prediction: result.context.prediction ?? null,
+      latestReadFilePath
     };
     if (exposeRawContext) {
       payload.rawContext = result.context;
@@ -166,12 +168,14 @@ async function routeRequest(
         at: Date.now(),
         context: result.context
       };
+      const latestReadFilePath = extractLatestReadonlyReadPath(result.context);
       const donePayload: Record<string, unknown> = {
         reply: result.text,
         proactiveReply: result.proactiveText ?? null,
         context: result.context.formatted,
         blocks: result.context.blocks,
-        prediction: result.context.prediction ?? null
+        prediction: result.context.prediction ?? null,
+        latestReadFilePath
       };
       if (exposeRawContext) {
         donePayload.rawContext = result.context;
@@ -262,7 +266,8 @@ async function routeRequest(
       sendJson(res, 400, { error: i18n.t("web.api.error.path_required") });
       return;
     }
-    const maxBytes = parsePositiveInt(url.searchParams.get("maxBytes"), 64 * 1024);
+    const maxBytesRaw = url.searchParams.get("maxBytes");
+    const maxBytes = maxBytesRaw ? parsePositiveInt(maxBytesRaw, 64 * 1024) : undefined;
     try {
       const result = await fileService.read(pathInput, maxBytes);
       sendJson(res, 200, result);
@@ -450,6 +455,20 @@ async function readFileSize(path: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+function extractLatestReadonlyReadPath(context: Context): string | null {
+  const events = context.recentEvents;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.role !== "tool") continue;
+    if (!event.metadata || event.metadata.tool !== "readonly.read") continue;
+    const path = event.metadata.path;
+    if (typeof path === "string" && path.trim().length > 0) {
+      return path;
+    }
+  }
+  return null;
 }
 
 function parsePositiveInt(raw: string | null, fallback: number): number {

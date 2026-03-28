@@ -169,6 +169,18 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     );
   });
 
+  test("loads agent tool round limit from toml file", async () => {
+    const filePath = await makeTempPath();
+    await writeFile(
+      filePath,
+      ["[manager]", "agentMaxToolRounds = 21"].join("\n"),
+      "utf8"
+    );
+
+    const config = loadConfig({}, { userTomlPath: filePath });
+    expect(config.manager.agentMaxToolRounds).toBe(21);
+  });
+
   test("throws on invalid toml syntax", async () => {
     const filePath = await makeTempPath();
     await writeFile(filePath, "[service\nprovider = \"openai\"", "utf8");

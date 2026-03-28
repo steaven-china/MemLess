@@ -122,15 +122,33 @@ describe("Agent tool orchestration", () => {
     expect(toolExecutor.calls).toHaveLength(0);
   });
 
-  test("returns fallback when tool-call rounds exceed limit", async () => {
+  test("returns fallback when tool-call rounds exceed configured limit", async () => {
     const runtime = createRuntime();
     const provider = new EndlessToolProvider();
     const toolExecutor = new MockToolExecutor();
-    const agent = new Agent(runtime.memoryManager, provider, { toolExecutor });
+    const agent = new Agent(runtime.memoryManager, provider, {
+      toolExecutor,
+      maxToolRounds: 15
+    });
 
     const response = await agent.respond("持续调用工具");
 
-    expect(response.text).toContain("Tool call rounds exceeded limit");
-    expect(toolExecutor.calls).toHaveLength(6);
+    expect(response.text).toContain("Tool call rounds exceeded limit (15)");
+    expect(toolExecutor.calls).toHaveLength(15);
+  });
+
+  test("falls back to default rounds when configured maxToolRounds is invalid", async () => {
+    const runtime = createRuntime();
+    const provider = new EndlessToolProvider();
+    const toolExecutor = new MockToolExecutor();
+    const agent = new Agent(runtime.memoryManager, provider, {
+      toolExecutor,
+      maxToolRounds: 0
+    });
+
+    const response = await agent.respond("持续调用工具");
+
+    expect(response.text).toContain("Tool call rounds exceeded limit (12)");
+    expect(toolExecutor.calls).toHaveLength(12);
   });
 });

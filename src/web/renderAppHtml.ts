@@ -128,6 +128,7 @@ export function renderAppHtml(i18n: I18n): string {
         </form>
         <div class="hint">${i18n.t("web.hint.main")}</div>
         <div class="hint">${i18n.t("web.hint.agent_files")}</div>
+        <div class="hint" id="activeFileStatus">${i18n.t("web.hint.active_file_empty")}</div>
         <details class="raw-context">
           <summary>${i18n.t("web.raw_context.summary")}</summary>
           <pre id="rawContextView">${i18n.t("web.raw_context.empty")}</pre>
@@ -230,6 +231,7 @@ export function renderAppHtml(i18n: I18n): string {
     const blocksMeta = document.getElementById("blocksMeta");
     const relationsMeta = document.getElementById("relationsMeta");
     const rawContextView = document.getElementById("rawContextView");
+    const activeFileStatus = document.getElementById("activeFileStatus");
     const detailModal = document.getElementById("detailModal");
     const modalTitle = document.getElementById("modalTitle");
     const modalContent = document.getElementById("modalContent");
@@ -438,6 +440,7 @@ export function renderAppHtml(i18n: I18n): string {
             ? replyText + "\\n\\n" + proactiveText
             : replyText;
           assistantBubble.classList.remove("streaming");
+          renderActiveFileStatus(data.latestReadFilePath);
           renderRawContext(data.rawContext ?? {
             formatted: data.context ?? "",
             blocks: Array.isArray(data.blocks) ? data.blocks : [],
@@ -473,6 +476,7 @@ export function renderAppHtml(i18n: I18n): string {
               const proactive = typeof parsed.data?.proactiveReply === "string" ? parsed.data.proactiveReply : "";
               assistantBubble.textContent = proactive ? textSoFar + "\\n\\n" + proactive : textSoFar;
               assistantBubble.classList.remove("streaming");
+              renderActiveFileStatus(parsed.data?.latestReadFilePath);
               renderRawContext(parsed.data?.rawContext ?? {
                 formatted: parsed.data?.context ?? "",
                 blocks: Array.isArray(parsed.data?.blocks) ? parsed.data.blocks : [],
@@ -815,6 +819,17 @@ export function renderAppHtml(i18n: I18n): string {
     function renderRawContext(rawContext) {
       if (!rawContextView) return;
       rawContextView.textContent = JSON.stringify(rawContext ?? { empty: true }, null, 2);
+    }
+
+    function renderActiveFileStatus(filePath) {
+      if (!activeFileStatus) return;
+      if (typeof filePath === "string" && filePath.trim().length > 0) {
+        activeFileStatus.textContent = t("web.hint.active_file", { path: filePath });
+        activeFileStatus.title = filePath;
+        return;
+      }
+      activeFileStatus.textContent = t("web.hint.active_file_empty");
+      activeFileStatus.removeAttribute("title");
     }
 
     async function initializeCapabilities() {

@@ -45,6 +45,7 @@ export interface AgentOptions {
   proactivePlanner?: ProactiveDialoguePlanner;
   proactiveActuator?: ProactiveActuator;
   i18n?: I18n;
+  maxToolRounds?: number;
 }
 
 export interface AgentGenerateOptions {
@@ -52,7 +53,7 @@ export interface AgentGenerateOptions {
 }
 
 export class Agent {
-  private static readonly MAX_TOOL_ROUNDS = 6;
+  private static readonly DEFAULT_MAX_TOOL_ROUNDS = 12;
   private readonly systemPrompt: string;
   private readonly toolExecutor?: IAgentToolExecutor;
   private readonly introduction?: string;
@@ -62,6 +63,7 @@ export class Agent {
   private readonly proactivePlanner?: ProactiveDialoguePlanner;
   private readonly proactiveActuator?: ProactiveActuator;
   private readonly i18n?: I18n;
+  private readonly maxToolRounds: number;
   private proactiveTickRunning = false;
 
   constructor(
@@ -91,6 +93,7 @@ export class Agent {
     this.proactivePlanner = options.proactivePlanner;
     this.proactiveActuator = options.proactiveActuator;
     this.i18n = options.i18n;
+    this.maxToolRounds = normalizePositiveInt(options.maxToolRounds, Agent.DEFAULT_MAX_TOOL_ROUNDS);
     const toolGuidelines = this.toolExecutor?.instructions();
 
     const parts = [basePrompt];
@@ -257,7 +260,7 @@ export class Agent {
     }
 
     const messages: ChatMessage[] = [...baseMessages];
-    for (let round = 0; round < Agent.MAX_TOOL_ROUNDS; round += 1) {
+    for (let round = 0; round < this.maxToolRounds; round += 1) {
       const candidate = await this.provider.generate(messages, options);
       this.trace("model.round.candidate", {
         round,
@@ -313,10 +316,10 @@ export class Agent {
     }
 
     const fallback =
-      this.i18n?.t("agent.tool.round.limit", { limit: Agent.MAX_TOOL_ROUNDS }) ??
-      `Tool call rounds exceeded limit (${Agent.MAX_TOOL_ROUNDS}). Please provide a concise best-effort answer with available information.`;
+      this.i18n?.t("agent.tool.round.limit", { limit: this.maxToolRounds }) ??
+      `Tool call rounds exceeded limit (${this.maxToolRounds}). Please provide a concise best-effort answer with available information.`;
     this.trace("tool.round.limit", {
-      maxToolRounds: Agent.MAX_TOOL_ROUNDS,
+      maxToolRounds: this.maxToolRounds,
       fallback
     });
     if (onToken) onToken(fallback);
@@ -434,6 +437,12 @@ function readFirstNonEmpty(paths: Iterable<string>, maxLength: number): string |
   }
 
   return undefined;
+}
+
+function normalizePositiveInt(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : fallback;
 }
 
 

@@ -134,7 +134,8 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   proactiveWakeupMaxPerHour: 3,
   proactiveWakeupRequireEvidence: false,
   proactiveTimerEnabled: false,
-  proactiveTimerIntervalSeconds: 300
+  proactiveTimerIntervalSeconds: 300,
+  agentMaxToolRounds: 12
 };
 
 export interface LoadConfigOptions {
@@ -278,6 +279,10 @@ export function loadConfig(
     proactiveTimerIntervalSeconds: parseEnvNumber(
       "MLEX_PROACTIVE_TIMER_INTERVAL_SECONDS",
       DEFAULT_MANAGER_CONFIG.proactiveTimerIntervalSeconds
+    ),
+    agentMaxToolRounds: Math.max(
+      1,
+      parseEnvNumber("MLEX_AGENT_MAX_TOOL_ROUNDS", DEFAULT_MANAGER_CONFIG.agentMaxToolRounds)
     ),
     enableRelationExpansion:
       (process.env.MLEX_RELATION_EXPAND ?? "true").toLowerCase() !== "false"

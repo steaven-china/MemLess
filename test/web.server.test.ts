@@ -82,6 +82,7 @@ describe("Web server", () => {
       blocks?: unknown[];
       prediction?: unknown;
       rawContext?: unknown;
+      latestReadFilePath?: string | null;
     };
     expect(typeof data.reply).toBe("string");
     expect((data.reply ?? "").length).toBeGreaterThan(0);
@@ -90,6 +91,7 @@ describe("Web server", () => {
     expect(Array.isArray(data.blocks)).toBe(true);
     expect(data.prediction === undefined || typeof data.prediction === "object").toBe(true);
     expect(typeof data.rawContext).toBe("object");
+    expect(data.latestReadFilePath === null || typeof data.latestReadFilePath === "string").toBe(true);
   });
 
   test("streams sse events with done payload", async () => {
@@ -116,6 +118,32 @@ describe("Web server", () => {
     expect(text).toContain("\"context\"");
     expect(text).toContain("\"prediction\"");
     expect(text).toContain("\"rawContext\"");
+    expect(text).toContain("\"latestReadFilePath\"");
+  });
+
+  test("returns latestReadFilePath even when rawContext is disabled", async () => {
+    started = await startWebServer({
+      host: "127.0.0.1",
+      port: 0,
+      runtimeOverrides: {
+        component: {
+          webExposeRawContext: false
+        }
+      }
+    });
+
+    const response = await fetch(`${started.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "请告诉我当前上下文" })
+    });
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as {
+      rawContext?: unknown;
+      latestReadFilePath?: string | null;
+    };
+    expect(data.rawContext).toBeUndefined();
+    expect(data.latestReadFilePath === null || typeof data.latestReadFilePath === "string").toBe(true);
   });
 
   test("exposes debug database snapshot and block detail", async () => {
@@ -236,6 +264,16 @@ describe("Web server", () => {
     expect(typeof readData.truncated).toBe("boolean");
     expect(typeof readData.totalBytes).toBe("number");
     expect(typeof readData.bytes).toBe("number");
+
+    const readAllResponse = await fetch(`${started.url}/api/files/read?path=README.md`);
+    expect(readAllResponse.status).toBe(200);
+    const readAllData = (await readAllResponse.json()) as {
+      truncated?: boolean;
+      totalBytes?: number;
+      bytes?: number;
+    };
+    expect(readAllData.truncated).toBe(false);
+    expect(readAllData.totalBytes).toBe(readAllData.bytes);
 
     const traversalResponse = await fetch(`${started.url}/api/files/read?path=../oops.txt`);
     expect(traversalResponse.status).toBe(400);

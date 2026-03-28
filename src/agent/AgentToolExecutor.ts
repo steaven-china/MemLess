@@ -116,7 +116,11 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
       }
-      const maxBytes = clampInt(call.args.maxBytes, 64 * 1024, 256, 2 * 1024 * 1024);
+      const maxBytesRaw = call.args.maxBytes;
+      const maxBytes =
+        typeof maxBytesRaw === "number" && Number.isFinite(maxBytesRaw)
+          ? Math.max(1, Math.floor(maxBytesRaw))
+          : undefined;
       const result = await this.fileService.read(pathInput, maxBytes);
       await this.recordReadonlyRead(pathInput, maxBytes, result);
       const output = {
@@ -467,7 +471,7 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
 
   private async recordReadonlyRead(
     pathInput: string,
-    maxBytes: number,
+    maxBytes: number | undefined,
     result: {
       path: string;
       text: string;

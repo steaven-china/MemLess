@@ -201,6 +201,7 @@ function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignBoolean(output, "proactiveWakeupRequireEvidence", table.proactiveWakeupRequireEvidence, filePath, `${fieldPath}.proactiveWakeupRequireEvidence`);
   assignBoolean(output, "proactiveTimerEnabled", table.proactiveTimerEnabled, filePath, `${fieldPath}.proactiveTimerEnabled`);
   assignNumber(output, "proactiveTimerIntervalSeconds", table.proactiveTimerIntervalSeconds, filePath, `${fieldPath}.proactiveTimerIntervalSeconds`);
+  assignNumber(output, "agentMaxToolRounds", table.agentMaxToolRounds, filePath, `${fieldPath}.agentMaxToolRounds`);
 
   return output;
 }

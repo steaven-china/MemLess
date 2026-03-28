@@ -20,6 +20,21 @@ describe("ReadonlyFileService", () => {
     expect(paths).toContain("readme.txt");
   });
 
+  test("reads full file when maxBytes is omitted", async () => {
+    const folder = await fs.mkdtemp(join(tmpdir(), "mlex-files-read-full-"));
+    const filePath = join(folder, "full.txt");
+    await fs.writeFile(filePath, "abcdefghij", "utf8");
+
+    const service = new ReadonlyFileService({ rootPath: folder });
+    const result = await service.read("full.txt");
+    expect(result.path).toBe("full.txt");
+    expect(result.text).toBe("abcdefghij");
+    expect(result.bytes).toBe(10);
+    expect(result.totalBytes).toBe(10);
+    expect(result.truncated).toBe(false);
+    expect(typeof result.modifiedAt).toBe("number");
+  });
+
   test("reads file with truncation metadata", async () => {
     const folder = await fs.mkdtemp(join(tmpdir(), "mlex-files-read-"));
     const filePath = join(folder, "big.txt");

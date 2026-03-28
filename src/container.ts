@@ -429,6 +429,7 @@ function registerRuntimeDependencies(input: {
         ...(options.tagsTemplateVars ?? {})
       },
       toolExecutor: options.enableAgentTools === false ? undefined : container.resolve("toolExecutor"),
+      maxToolRounds: config.manager.agentMaxToolRounds,
       traceRecorder: container.resolve("debugTraceRecorder"),
       proactivePlanner:
         config.manager.searchAugmentMode === "predictive" && config.manager.proactiveWakeupEnabled

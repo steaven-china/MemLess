@@ -17,6 +17,8 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "web.button.send": "Send",
   "web.hint.main": "Minimal frontend: streaming enabled by default, supports multi-line paste, /trace [n], and /trace-clear.",
   "web.hint.agent_files": "Agent prompt files are auto-loaded from AgentDocs/AGENT.md (or AGENTS.md fallback), and Introduction.md is injected on cold start.",
+  "web.hint.active_file": "AI reading file: {path}",
+  "web.hint.active_file_empty": "AI reading file: (none)",
   "web.raw_context.summary": "Raw context (latest)",
   "web.raw_context.empty": "No context yet",
   "web.debug.title": "Database debug view (right panel)",
@@ -116,7 +118,7 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "tool.instruction.history_first": "When information is incomplete, prefer calling history.query before answering.",
   "tool.instruction.supported": "Supported tools:",
   "tool.instruction.readonly_list": "- readonly.list args: {\"path\":\".\",\"maxEntries\":200}",
-  "tool.instruction.readonly_read": "- readonly.read args: {\"path\":\"README.md\",\"maxBytes\":65536}",
+  "tool.instruction.readonly_read": "- readonly.read args: {\"path\":\"README.md\",\"maxBytes\":optional}",
   "tool.instruction.history_query":
     "- history.query args: {\"query\":\"payment webhook\",\"mode\":\"hybrid\",\"topBlocks\":5,\"limit\":5,\"keywords\":[\"idempotency\"],\"includeRaw\":true,\"includeRecent\":true,\"includePrediction\":true,\"maxFormattedChars\":16384}",
   "tool.instruction.web_search":

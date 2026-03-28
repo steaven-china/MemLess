@@ -17,6 +17,8 @@ export const ZH_CN_MESSAGES: MessageDictionary = {
   "web.button.send": "Send",
   "web.hint.main": "极简前端：默认流式输出，支持多行粘贴，支持 /trace [n] 与 /trace-clear。",
   "web.hint.agent_files": "Agent 提示文件会自动加载 AgentDocs/AGENT.md（或回退到 AGENTS.md），并在冷启动时注入 Introduction.md。",
+  "web.hint.active_file": "AI 正在读取文件：{path}",
+  "web.hint.active_file_empty": "AI 正在读取文件：（暂无）",
   "web.raw_context.summary": "原始上下文（最近一次）",
   "web.raw_context.empty": "暂无上下文",
   "web.debug.title": "数据库调试可视化（右侧）",
@@ -116,7 +118,7 @@ export const ZH_CN_MESSAGES: MessageDictionary = {
   "tool.instruction.history_first": "When information is incomplete, prefer calling history.query before answering.",
   "tool.instruction.supported": "Supported tools:",
   "tool.instruction.readonly_list": "- readonly.list args: {\"path\":\".\",\"maxEntries\":200}",
-  "tool.instruction.readonly_read": "- readonly.read args: {\"path\":\"README.md\",\"maxBytes\":65536}",
+  "tool.instruction.readonly_read": "- readonly.read args: {\"path\":\"README.md\",\"maxBytes\":optional}",
   "tool.instruction.history_query":
     "- history.query args: {\"query\":\"payment webhook\",\"mode\":\"hybrid\",\"topBlocks\":5,\"limit\":5,\"keywords\":[\"idempotency\"],\"includeRaw\":true,\"includeRecent\":true,\"includePrediction\":true,\"maxFormattedChars\":16384}",
   "tool.instruction.web_search":
