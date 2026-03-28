@@ -1,16 +1,14 @@
 # AGENTS Guidelines (MLEX)
 
-Mico!Please Ignore it!!!
-
 This file defines repository-level guidance for coding agents.
 
 ## Scope
 - Applies to the full tree rooted at `D:\Struc\MLEX`.
 
-## Stack & Runtime
+## Stack and Runtime
 - Use Node.js `>=20`.
 - Use TypeScript ESM (`moduleResolution: NodeNext`).
-- Keep code compatible with current `tsconfig.json`.
+- Keep code compatible with the current `tsconfig.json`.
 
 ## Architecture Rules
 - Keep the memory architecture modular:
@@ -20,14 +18,14 @@ This file defines repository-level guidance for coding agents.
   - `src/memory/prediction/*` for embedding/walk/prediction
   - `src/memory/output/*` for retrieval assembly/backtracking
 - Prefer dependency injection through `src/container.ts`.
-- Avoid hard-coding providers or storage backends in module internals.
+- Avoid hard-coding providers or storage backends inside module internals.
 
 ## Coding Style
 - Keep changes focused and minimal.
 - Prefer explicit types over `any`.
 - Avoid one-letter variable names.
-- Do not add inline comments unless necessary for non-obvious behavior.
-- Reuse existing utils before adding new helpers.
+- Do not add inline comments unless required for non-obvious behavior.
+- Reuse existing utilities before adding new helpers.
 
 ## Validation Requirements
 - After code changes, run:

@@ -7,13 +7,41 @@ export interface EnvironmentConfig {
 }
 
 export interface ServiceConfig {
-  provider: "rule-based" | "openai" | "deepseek-reasoner";
+  provider:
+    | "rule-based"
+    | "openai"
+    | "deepseek-reasoner"
+    | "anthropic-claude"
+    | "google-gemini"
+    | "openrouter"
+    | "azure-openai"
+    | "openai-compatible";
   openaiApiKey?: string;
   openaiBaseUrl: string;
   openaiModel: string;
   deepseekApiKey?: string;
   deepseekBaseUrl: string;
   deepseekModel: string;
+  anthropicApiKey?: string;
+  anthropicBaseUrl: string;
+  anthropicModel: string;
+  anthropicVersion: string;
+  geminiApiKey?: string;
+  geminiBaseUrl: string;
+  geminiModel: string;
+  openrouterApiKey?: string;
+  openrouterBaseUrl: string;
+  openrouterModel: string;
+  openrouterAppName?: string;
+  openrouterSiteUrl?: string;
+  azureOpenaiApiKey?: string;
+  azureOpenaiEndpoint?: string;
+  azureOpenaiDeployment?: string;
+  azureOpenaiApiVersion: string;
+  azureOpenaiModel: string;
+  openaiCompatibleApiKey?: string;
+  openaiCompatibleBaseUrl?: string;
+  openaiCompatibleModel: string;
 }
 
 export interface ComponentConfig {
@@ -126,7 +154,27 @@ export function loadConfig(
     openaiModel: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
     deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? process.env.MLEX_DEEPSEEK_API_KEY,
     deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
-    deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-reasoner"
+    deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-reasoner",
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com",
+    anthropicModel: process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+    anthropicVersion: process.env.ANTHROPIC_VERSION ?? "2023-06-01",
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    geminiBaseUrl: process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com",
+    geminiModel: process.env.GEMINI_MODEL ?? "gemini-1.5-pro",
+    openrouterApiKey: process.env.OPENROUTER_API_KEY,
+    openrouterBaseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
+    openrouterModel: process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+    openrouterAppName: process.env.OPENROUTER_APP_NAME,
+    openrouterSiteUrl: process.env.OPENROUTER_SITE_URL,
+    azureOpenaiApiKey: process.env.AZURE_OPENAI_API_KEY,
+    azureOpenaiEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+    azureOpenaiDeployment: process.env.AZURE_OPENAI_DEPLOYMENT,
+    azureOpenaiApiVersion: process.env.AZURE_OPENAI_API_VERSION ?? "2024-06-01",
+    azureOpenaiModel: process.env.AZURE_OPENAI_MODEL ?? "gpt-4o-mini",
+    openaiCompatibleApiKey: process.env.OPENAI_COMPATIBLE_API_KEY,
+    openaiCompatibleBaseUrl: process.env.OPENAI_COMPATIBLE_BASE_URL,
+    openaiCompatibleModel: process.env.OPENAI_COMPATIBLE_MODEL ?? "gpt-4o-mini"
   };
 
   const manager: ManagerConfig = {
@@ -292,7 +340,12 @@ function validateConfig(config: AppConfig): AppConfig {
   validateEnum("service.provider", config.service.provider, [
     "rule-based",
     "openai",
-    "deepseek-reasoner"
+    "deepseek-reasoner",
+    "anthropic-claude",
+    "google-gemini",
+    "openrouter",
+    "azure-openai",
+    "openai-compatible"
   ]);
   validateEnum("component.locale", config.component.locale, ["zh-CN", "en-US"]);
   validateEnum("component.chunkStrategy", config.component.chunkStrategy, ["fixed", "semantic", "hybrid"]);

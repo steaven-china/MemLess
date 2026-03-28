@@ -109,6 +109,45 @@ describe("ChatCompletionProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test("uses custom request path, query params, extra headers, and omits model when configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "ok" } }]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new ChatCompletionProvider(
+      { apiKey: "k", model: "m" },
+      {
+        providerName: "Test",
+        defaultBaseUrl: "https://example.com",
+        requestPath: "/openai/deployments/demo/chat/completions",
+        extraQueryParams: { "api-version": "2024-06-01" },
+        extraHeaders: { "X-Title": "my-app" },
+        includeModelInBody: false
+      }
+    );
+
+    const text = await provider.generate([{ role: "user", content: "hello" }]);
+    expect(text).toBe("ok");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://example.com/openai/deployments/demo/chat/completions?api-version=2024-06-01");
+
+    const headers = (init.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer k");
+    expect(headers["X-Title"]).toBe("my-app");
+
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.model).toBeUndefined();
+    expect(body.stream).toBe(false);
+  });
+
   test("reuses assistant reasoning_content on follow-up request", async () => {
     const fetchMock = vi
       .fn()

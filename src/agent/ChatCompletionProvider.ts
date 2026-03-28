@@ -19,6 +19,10 @@ export interface ChatCompletionProviderOptions {
   emptyResponseMessage?: string;
   retryPrompt?: string;
   onTrace?: ChatCompletionTraceCallback;
+  requestPath?: string;
+  extraQueryParams?: Record<string, string | undefined>;
+  extraHeaders?: Record<string, string | undefined>;
+  includeModelInBody?: boolean;
 }
 
 export type ChatCompletionTraceCallback = (event: string, payload: unknown) => void;
@@ -191,17 +195,34 @@ export class ChatCompletionProvider implements ILLMProvider {
 
   private request(messages: ChatMessage[], stream: boolean, signal?: AbortSignal): Promise<Response> {
     const apiMessages = messages.map((message) => this.toApiMessage(message));
-    return fetch(`${this.baseUrl}/chat/completions`, {
+    const requestPath = this.options.requestPath ?? "/chat/completions";
+    const endpoint = new URL(requestPath, this.baseUrl.endsWith("/") ? this.baseUrl : `${this.baseUrl}/`);
+    for (const [key, value] of Object.entries(this.options.extraQueryParams ?? {})) {
+      if (value === undefined) continue;
+      endpoint.searchParams.set(key, value);
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.config.apiKey}`
+    };
+    for (const [key, value] of Object.entries(this.options.extraHeaders ?? {})) {
+      if (value === undefined) continue;
+      headers[key] = value;
+    }
+
+    const body: Record<string, unknown> = {
+      messages: apiMessages,
+      stream
+    };
+    if (this.options.includeModelInBody !== false) {
+      body.model = this.config.model;
+    }
+
+    return fetch(endpoint.toString(), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        messages: apiMessages,
-        stream
-      }),
+      headers,
+      body: JSON.stringify(body),
       signal
     });
   }

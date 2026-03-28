@@ -1,53 +1,53 @@
 # MLEX Agent
 
-MLEX 是一个**可运行的 CLI / Web AI Agent**，核心特色是“分层记忆系统”：
-- 对话事件自动分块封存（block sealing）
-- 混合检索（关键词 + 向量 + 关系图）
-- 可选关系抽取与预测触发
-- 支持把工具调用（含文件读取）写入记忆与关系
+MLEX is a **runnable CLI/Web AI agent** built around a layered memory architecture:
+- Automatic conversation block sealing
+- Hybrid retrieval (keyword + vector + relation graph)
+- Optional relation extraction and proactive prediction
+- Tool-call persistence (including readonly file access) into memory and relations
 
-如果你在做需要长期上下文的 Agent 项目（研发助手、项目记忆助手、流程追踪助手），这个仓库可以直接作为基础框架。
-
----
-
-## 你会得到什么
-
-- **开箱可跑**：`mlex chat` / `mlex web` / `mlex ask`
-- **可替换后端**：`memory` / `sqlite` / `lance` / `chroma`
-- **可替换模型提供方**：`rule-based` / `openai` / `deepseek-reasoner`
-- **可观察可调参**：debug trace、检索权重、压缩策略、预测策略
-- **工具调用可入库**：`web.search.record`、`web.fetch.record`、`readonly.list`、`readonly.read`
+If you are building an agent that needs long-lived context (engineering assistant, project memory assistant, workflow tracker), this repository can be used as a practical baseline.
 
 ---
 
-## 项目结构（速览）
+## What You Get
+
+- **Ready to run**: `mlex chat` / `mlex web` / `mlex ask`
+- **Pluggable storage**: `memory` / `sqlite` / `lance` / `chroma`
+- **Pluggable providers**: `rule-based` / `openai` / `deepseek-reasoner`
+- **Observable and tunable**: debug trace, retrieval weights, compression policy, prediction policy
+- **Tool calls can be persisted**: `web.search.record`, `web.fetch.record`, `readonly.list`, `readonly.read`
+
+---
+
+## Project Layout (Quick View)
 
 ```text
 src/
-  agent/                 # Agent 主循环、provider、tool executor
+  agent/                 # Agent loop, providers, tool executor
   memory/
-    processing/          # seal/index 主链
-    management/          # retention/compression 策略
-    relation/            # relation 提取、图、存储
-    prediction/          # 图嵌入、随机游走、主动触发
-    output/              # context 组装、raw 回溯
-  search/                # 外部搜索与网页抓取
-  web/                   # 内置 http 服务与前端页面
-  cli/                   # 命令行入口
+    processing/          # seal/index pipeline
+    management/          # retention/compression policy
+    relation/            # relation extraction, graph, persistence
+    prediction/          # graph embedding, random walk, proactive trigger
+    output/              # context assembly, raw backtracking
+  search/                # external search and web page fetch
+  web/                   # built-in HTTP server and web UI
+  cli/                   # command-line entry
 ```
 
 ---
 
-## 环境要求
+## Requirements
 
-- Node.js `>=20`（推荐 `22+`）
+- Node.js `>=20` (recommended `22+`)
 - npm `>=10`
 
-> SQLite 后端依赖 `node:sqlite`。若当前运行时不支持，请改用 `memory` 或 `lance` 后端。
+> The SQLite backend depends on `node:sqlite`. If your runtime does not support it, use `memory` or `lance` backend.
 
 ---
 
-## 快速开始
+## Quick Start
 
 ```bash
 npm install
@@ -55,13 +55,13 @@ npm run build
 npx mlex chat --provider rule-based
 ```
 
-开发模式：
+Development mode:
 
 ```bash
 npm run dev
 ```
 
-Web 模式：
+Web mode:
 
 ```bash
 npm run web
@@ -69,53 +69,53 @@ npm run web
 
 ---
 
-## 常用命令
+## Common Commands
 
-| 命令 | 说明 |
+| Command | Description |
 | --- | --- |
-| `npm run typecheck` | TypeScript 类型检查（no emit） |
-| `npm test` | 运行全部 Vitest 测试 |
-| `npm run build` | tsup 构建到 `dist/` |
-| `npm run acceptance` | 验收测试 |
+| `npm run typecheck` | TypeScript type check (no emit) |
+| `npm test` | Run all Vitest tests |
+| `npm run build` | Build to `dist/` with tsup |
+| `npm run acceptance` | Run acceptance tests |
 | `npm run verify:arch` | `typecheck -> test -> build -> acceptance` |
 
-CLI 入口：
+CLI entries:
 
-| 命令 | 说明 |
+| Command | Description |
 | --- | --- |
-| `mlex chat` | 交互式对话（TUI） |
-| `mlex web` | 启动 Web UI + API |
-| `mlex ask` | 单次提问 |
-| `mlex ingest <file>` | 导入文本到记忆 |
-| `mlex swarm` | 多 agent 协作 |
-| `mlex files:list` | 只读列目录 |
-| `mlex files:read` | 只读读文件 |
+| `mlex chat` | Interactive chat (TUI) |
+| `mlex web` | Start Web UI + API |
+| `mlex ask` | One-shot question |
+| `mlex ingest <file>` | Ingest text into memory |
+| `mlex swarm` | Multi-agent collaboration |
+| `mlex files:list` | Readonly directory listing |
+| `mlex files:read` | Readonly file read |
 
 ---
 
-## 核心概念
+## Core Concepts
 
-### 1) Seal（封存）
-对话事件先进入 active block，达到策略条件后封存为历史 block。
+### 1) Seal
+Events first enter the active block, then get sealed into historical blocks when policy thresholds are met.
 
-### 2) Retrieval（检索）
-检索融合三路信号：
-- 关键词匹配
-- 向量相似度
-- 关系图扩展
+### 2) Retrieval
+Retrieval fuses three signals:
+- Keyword matching
+- Vector similarity
+- Relation-graph expansion
 
-### 3) Retention（保留策略）
-支持 `raw / compressed / conflict`，并可在输出时做 raw backtrack。
+### 3) Retention
+Supports `raw / compressed / conflict`, with optional raw backtracking during output assembly.
 
-### 4) Relation（关系）
-支持启发式与 LLM 抽取，关系写入图与持久层。
+### 4) Relation
+Supports both heuristic and LLM-based extraction; relations are written to graph and persistence.
 
 ### 5) Prediction / Proactive
-支持图嵌入 + 随机游走预测，并带主动触发策略（可配置）。
+Supports graph embedding + random-walk prediction and configurable proactive wake-up policies.
 
 ---
 
-## Provider 配置示例
+## Provider Setup Examples
 
 ### OpenAI
 
@@ -135,9 +135,9 @@ npx mlex chat --provider deepseek-reasoner --model deepseek-reasoner --stream
 
 ---
 
-## 存储后端示例
+## Storage Backend Examples
 
-### SQLite（推荐默认）
+### SQLite (recommended default)
 
 ```bash
 export MLEX_STORAGE_BACKEND="sqlite"
@@ -164,56 +164,56 @@ npx mlex chat
 
 ---
 
-## 搜索增强模式
+## Search Augmentation Modes
 
-`MLEX_SEARCH_AUGMENT_MODE` 支持：
-- `lazy`：仅模型显式调用时搜索
-- `auto`：在 `history.query` 前自动搜索并入库
-- `scheduled`：定时跑种子 query 入库
-- `predictive`：配合 proactive 预测触发
+`MLEX_SEARCH_AUGMENT_MODE` supports:
+- `lazy`: search only when explicitly called by the model
+- `auto`: auto-search and persist before `history.query`
+- `scheduled`: periodically run seed queries and persist results
+- `predictive`: trigger with proactive prediction flows
 
 ---
 
-## 工具调用入库（重点）
+## Tool-Call Persistence (Important)
 
-当前支持把以下工具结果写入记忆：
+The following tool results can be written into memory:
 - `web.search.record`
 - `web.fetch.record`
 - `readonly.list`
 - `readonly.read`
 
-其中 `readonly.read` 会额外记录：
-- 文件快照语义（`contentHash` / `versionKey` / `nearDuplicateKey`）
-- 文件关系边（如 `SNAPSHOT_OF_FILE`、`FILE_MENTIONS_BLOCK`）
-- 文件向量入库（独立 `file_vectors` 表）
+`readonly.read` additionally records:
+- File snapshot semantics (`contentHash`, `versionKey`, `nearDuplicateKey`)
+- File relation edges (`SNAPSHOT_OF_FILE`, `FILE_MENTIONS_BLOCK`)
+- File vectors in a dedicated `file_vectors` table
 
 ---
 
-## Web API（简表）
+## Web API (Summary)
 
 - `GET /healthz`
 - `GET /api/capabilities`
 - `POST /api/chat`
-- `POST /api/chat/stream`（SSE）
+- `POST /api/chat/stream` (SSE)
 - `POST /api/seal`
-- `GET /api/debug/*`（需开启 debug api）
-- `GET /api/files/list`、`GET /api/files/read`（需开启 file api）
+- `GET /api/debug/*` (debug API must be enabled)
+- `GET /api/files/list`, `GET /api/files/read` (file API must be enabled)
 
 ---
 
-## 常见问题
+## FAQ
 
-### Q1: `node:sqlite` 不可用
-请升级 Node，或切到 `memory/lance/chroma` 后端。
+### Q1: `node:sqlite` is unavailable
+Upgrade Node.js, or switch to `memory/lance/chroma` backend.
 
-### Q2: Windows 下 `spawn EPERM`（esbuild）
-常见原因是安全软件拦截或执行权限受限。优先先跑 `npm run typecheck` 确认代码层面状态。
+### Q2: `spawn EPERM` on Windows (esbuild)
+This is commonly caused by security software interception or restricted execution permissions. Run `npm run typecheck` first to validate code-level state.
 
 ---
 
-## 开发与贡献建议
+## Development and Contribution
 
-每次改动后建议按顺序执行：
+After each change, run in this order:
 
 ```bash
 npm run typecheck
@@ -221,7 +221,7 @@ npm test
 npm run build
 ```
 
-若改动涉及架构链路，再执行：
+If the change touches architecture-critical paths, also run:
 
 ```bash
 npm run verify:arch
@@ -231,5 +231,5 @@ npm run verify:arch
 
 ## License
 
-本项目基于 [Apache License 2.0](./LICENSE) 发布。
-补充归属声明见 [NOTICE](./NOTICE)。
+This project is licensed under [Apache License 2.0](./LICENSE).
+Additional attribution details are in [NOTICE](./NOTICE).

@@ -76,6 +76,26 @@ function mapService(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignString(output, "deepseekApiKey", table.deepseekApiKey, filePath, `${fieldPath}.deepseekApiKey`);
   assignString(output, "deepseekBaseUrl", table.deepseekBaseUrl, filePath, `${fieldPath}.deepseekBaseUrl`);
   assignString(output, "deepseekModel", table.deepseekModel, filePath, `${fieldPath}.deepseekModel`);
+  assignString(output, "anthropicApiKey", table.anthropicApiKey, filePath, `${fieldPath}.anthropicApiKey`);
+  assignString(output, "anthropicBaseUrl", table.anthropicBaseUrl, filePath, `${fieldPath}.anthropicBaseUrl`);
+  assignString(output, "anthropicModel", table.anthropicModel, filePath, `${fieldPath}.anthropicModel`);
+  assignString(output, "anthropicVersion", table.anthropicVersion, filePath, `${fieldPath}.anthropicVersion`);
+  assignString(output, "geminiApiKey", table.geminiApiKey, filePath, `${fieldPath}.geminiApiKey`);
+  assignString(output, "geminiBaseUrl", table.geminiBaseUrl, filePath, `${fieldPath}.geminiBaseUrl`);
+  assignString(output, "geminiModel", table.geminiModel, filePath, `${fieldPath}.geminiModel`);
+  assignString(output, "openrouterApiKey", table.openrouterApiKey, filePath, `${fieldPath}.openrouterApiKey`);
+  assignString(output, "openrouterBaseUrl", table.openrouterBaseUrl, filePath, `${fieldPath}.openrouterBaseUrl`);
+  assignString(output, "openrouterModel", table.openrouterModel, filePath, `${fieldPath}.openrouterModel`);
+  assignString(output, "openrouterAppName", table.openrouterAppName, filePath, `${fieldPath}.openrouterAppName`);
+  assignString(output, "openrouterSiteUrl", table.openrouterSiteUrl, filePath, `${fieldPath}.openrouterSiteUrl`);
+  assignString(output, "azureOpenaiApiKey", table.azureOpenaiApiKey, filePath, `${fieldPath}.azureOpenaiApiKey`);
+  assignString(output, "azureOpenaiEndpoint", table.azureOpenaiEndpoint, filePath, `${fieldPath}.azureOpenaiEndpoint`);
+  assignString(output, "azureOpenaiDeployment", table.azureOpenaiDeployment, filePath, `${fieldPath}.azureOpenaiDeployment`);
+  assignString(output, "azureOpenaiApiVersion", table.azureOpenaiApiVersion, filePath, `${fieldPath}.azureOpenaiApiVersion`);
+  assignString(output, "azureOpenaiModel", table.azureOpenaiModel, filePath, `${fieldPath}.azureOpenaiModel`);
+  assignString(output, "openaiCompatibleApiKey", table.openaiCompatibleApiKey, filePath, `${fieldPath}.openaiCompatibleApiKey`);
+  assignString(output, "openaiCompatibleBaseUrl", table.openaiCompatibleBaseUrl, filePath, `${fieldPath}.openaiCompatibleBaseUrl`);
+  assignString(output, "openaiCompatibleModel", table.openaiCompatibleModel, filePath, `${fieldPath}.openaiCompatibleModel`);
 
   return output;
 }

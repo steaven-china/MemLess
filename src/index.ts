@@ -8,9 +8,14 @@ export * from "./tui/MlexTuiApp.js";
 
 export * from "./agent/Agent.js";
 export * from "./agent/AgentToolExecutor.js";
+export * from "./agent/AnthropicClaudeProvider.js";
+export * from "./agent/AzureOpenAIProvider.js";
 export * from "./agent/DeepSeekReasonerProvider.js";
+export * from "./agent/GoogleGeminiProvider.js";
 export * from "./agent/LLMProvider.js";
+export * from "./agent/OpenAICompatibleProvider.js";
 export * from "./agent/OpenAIProvider.js";
+export * from "./agent/OpenRouterProvider.js";
 export * from "./agent/RuleBasedProvider.js";
 export * from "./proactive/ProactiveDialoguePlanner.js";
 export * from "./proactive/ProactiveActuator.js";

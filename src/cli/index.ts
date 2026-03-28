@@ -389,7 +389,12 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
     service: {
       provider: asOptionalString(options.provider) as AppConfig["service"]["provider"],
       openaiModel: asOptionalString(options.model),
-      deepseekModel: asOptionalString(options.model)
+      deepseekModel: asOptionalString(options.model),
+      anthropicModel: asOptionalString(options.model),
+      geminiModel: asOptionalString(options.model),
+      openrouterModel: asOptionalString(options.model),
+      azureOpenaiModel: asOptionalString(options.model),
+      openaiCompatibleModel: asOptionalString(options.model)
     },
     component: {
       chunkStrategy: asOptionalString(options.chunkStrategy) as AppConfig["component"]["chunkStrategy"],
@@ -507,7 +512,12 @@ function sanitizeConfigForDisplay(config: AppConfig): AppConfig {
     service: {
       ...config.service,
       openaiApiKey: redactSecret(config.service.openaiApiKey),
-      deepseekApiKey: redactSecret(config.service.deepseekApiKey)
+      deepseekApiKey: redactSecret(config.service.deepseekApiKey),
+      anthropicApiKey: redactSecret(config.service.anthropicApiKey),
+      geminiApiKey: redactSecret(config.service.geminiApiKey),
+      openrouterApiKey: redactSecret(config.service.openrouterApiKey),
+      azureOpenaiApiKey: redactSecret(config.service.azureOpenaiApiKey),
+      openaiCompatibleApiKey: redactSecret(config.service.openaiCompatibleApiKey)
     },
     component: {
       ...config.component,
