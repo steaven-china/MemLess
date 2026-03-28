@@ -130,6 +130,14 @@ describe("BuiltinAgentToolExecutor search tools", () => {
     expect(typeof event?.metadata?.versionKey).toBe("string");
     expect(relationStore.relations.some((item) => item.type === "SNAPSHOT_OF_FILE")).toBe(true);
     expect(relationStore.relations.some((item) => item.type === "FILE_MENTIONS_BLOCK")).toBe(true);
+
+    const normalizedCwd = process.cwd().replace(/\\/g, "/");
+    const expectedFileEntityId = `file:${normalizedCwd}/README.md`;
+    const snapshotRelation = relationStore.relations.find((item) => item.type === RelationType.SNAPSHOT_OF_FILE);
+    const fileMentionsRelation = relationStore.relations.find((item) => item.type === RelationType.FILE_MENTIONS_BLOCK);
+    expect(snapshotRelation?.dst).toBe(expectedFileEntityId);
+    expect(snapshotRelation?.src.startsWith(`snapshot:${normalizedCwd}/README.md#`)).toBe(true);
+    expect(fileMentionsRelation?.src).toBe(expectedFileEntityId);
   });
 
   test("records web search results into memory", async () => {

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
 import type { I18n } from "../i18n/index.js";
@@ -482,8 +483,9 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     const suffixHash = createHash("sha256").update(result.text.slice(-2048)).digest("hex");
     const nearDuplicateKey = `${result.totalBytes}:${prefixHash}:${suffixHash}`;
     const versionKey = `${result.totalBytes}:${contentHash}`;
-    const fileEntityId = `file:${result.path}`;
-    const snapshotId = `snapshot:${result.path}#${versionKey}`;
+    const filePathAbsolute = resolve(this.config.workspaceRoot, result.path).replace(/\\/g, "/");
+    const fileEntityId = `file:${filePathAbsolute}`;
+    const snapshotId = `snapshot:${filePathAbsolute}#${versionKey}`;
     const activeBlockId = this.config.memoryManager.getActiveBlockId?.();
 
     if (this.config.fileAccessRecorder) {
@@ -491,7 +493,7 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
         fileId: fileEntityId,
         snapshotId,
         versionKey,
-        filePath: result.path,
+        filePath: filePathAbsolute,
         contentHash,
         nearDuplicateKey,
         sizeBytes: result.totalBytes,

@@ -354,16 +354,6 @@ The following tool results can be written into memory:
 
 ---
 
-## FAQ
-
-### Q1: `node:sqlite` is unavailable
-Upgrade Node.js, or switch to `memory/lance/chroma` backend.
-
-### Q2: `spawn EPERM` on Windows (esbuild)
-This is commonly caused by security software interception or restricted execution permissions. Run `npm run typecheck` first to validate code-level state.
-
----
-
 ## Development and Contribution
 
 After each change, run in this order:
