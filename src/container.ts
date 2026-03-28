@@ -133,6 +133,60 @@ export function createRuntime(
     return sqliteDatabase;
   };
 
+  registerCoreDependencies({
+    config,
+    container,
+    getSQLiteDatabase,
+    allowedAiTags
+  });
+  registerRuntimeDependencies({
+    config,
+    container,
+    options,
+    envIncludeTagsIntro,
+    envTagsIntroPath,
+    envTagsTomlPath,
+    envTagsTemplateVars
+  });
+
+  const agent = container.resolve<Agent>("agent");
+  const memoryManager = container.resolve<PartitionMemoryManager>("memoryManager");
+  let closed = false;
+  const scheduler = container.resolve<SearchIngestScheduler>("searchScheduler");
+  const proactiveTimerScheduler = container.resolve<ProactiveTimerScheduler>("proactiveTimerScheduler");
+  scheduler.start();
+  proactiveTimerScheduler.start();
+
+  const close = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+
+    await scheduler.stop();
+    await proactiveTimerScheduler.stop();
+    await memoryManager.flushAsyncRelations();
+    if (sqliteDatabase) {
+      sqliteDatabase.close();
+      sqliteDatabase = undefined;
+    }
+  };
+
+  return {
+    config,
+    container,
+    agent,
+    memoryManager,
+    close
+  };
+}
+
+function registerCoreDependencies(input: {
+  config: AppConfig;
+  container: Container;
+  getSQLiteDatabase: () => SQLiteDatabase;
+  allowedAiTags: string[];
+}): void {
+  const { config, container, getSQLiteDatabase, allowedAiTags } = input;
+
   container.register("config", () => config);
   container.register("locale", () => config.component.locale as Locale);
   container.register("i18n", () => createI18n({ locale: config.component.locale }));
@@ -208,10 +262,7 @@ export function createRuntime(
     });
   });
   container.register("keywordRetriever", () => {
-    return new KeywordRetriever(
-      container.resolve("keywordIndex"),
-      container.resolve("blockStore")
-    );
+    return new KeywordRetriever(container.resolve("keywordIndex"), container.resolve("blockStore"));
   });
   container.register("vectorRetriever", () => {
     return new VectorRetriever(
@@ -268,11 +319,7 @@ export function createRuntime(
     });
   });
   container.register("provider", () =>
-    buildProvider(
-      config,
-      container.resolve("debugTraceRecorder"),
-      container.resolve<I18n>("i18n")
-    )
+    buildProvider(config, container.resolve("debugTraceRecorder"), container.resolve<I18n>("i18n"))
   );
   container.register("searchProvider", () => {
     return new HttpSearchProvider({
@@ -330,6 +377,27 @@ export function createRuntime(
       i18n: container.resolve("i18n")
     });
   });
+}
+
+function registerRuntimeDependencies(input: {
+  config: AppConfig;
+  container: Container;
+  options: RuntimeOptions;
+  envIncludeTagsIntro: boolean | undefined;
+  envTagsIntroPath: string | undefined;
+  envTagsTomlPath: string | undefined;
+  envTagsTemplateVars: Record<string, string>;
+}): void {
+  const {
+    config,
+    container,
+    options,
+    envIncludeTagsIntro,
+    envTagsIntroPath,
+    envTagsTomlPath,
+    envTagsTemplateVars
+  } = input;
+
   container.register("toolExecutor", () => {
     return new BuiltinAgentToolExecutor({
       workspaceRoot: options.workspaceRoot ?? process.cwd(),
@@ -383,35 +451,6 @@ export function createRuntime(
       intervalSeconds: Math.max(1, config.manager.proactiveTimerIntervalSeconds)
     });
   });
-
-  const agent = container.resolve<Agent>("agent");
-  const memoryManager = container.resolve<PartitionMemoryManager>("memoryManager");
-  let closed = false;
-  const scheduler = container.resolve<SearchIngestScheduler>("searchScheduler");
-  const proactiveTimerScheduler = container.resolve<ProactiveTimerScheduler>("proactiveTimerScheduler");
-  scheduler.start();
-  proactiveTimerScheduler.start();
-
-  const close = async (): Promise<void> => {
-    if (closed) return;
-    closed = true;
-
-    await scheduler.stop();
-    await proactiveTimerScheduler.stop();
-    await memoryManager.flushAsyncRelations();
-    if (sqliteDatabase) {
-      sqliteDatabase.close();
-      sqliteDatabase = undefined;
-    }
-  };
-
-  return {
-    config,
-    container,
-    agent,
-    memoryManager,
-    close
-  };
 }
 
 function buildChunkStrategy(config: AppConfig): IChunkStrategy {

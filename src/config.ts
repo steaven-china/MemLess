@@ -1,5 +1,5 @@
 import type { ManagerConfig } from "./types.js";
-import { ensureDefaultUserConfigFiles, loadUserTomlConfig } from "./config/toml.js";
+import { loadUserTomlConfig } from "./config/toml.js";
 
 export interface EnvironmentConfig {
   nodeEnv: string;
@@ -146,9 +146,6 @@ export function loadConfig(
   options: LoadConfigOptions = {}
 ): AppConfig {
   const shouldLoadUserToml = options.userTomlPath !== undefined || process.env.NODE_ENV !== "test";
-  if (shouldLoadUserToml) {
-    ensureDefaultUserConfigFiles({ configFilePath: options.userTomlPath });
-  }
   const userToml = shouldLoadUserToml ? loadUserTomlConfig({ filePath: options.userTomlPath }) : {};
   const environment: EnvironmentConfig = {
     nodeEnv: process.env.NODE_ENV ?? "development",

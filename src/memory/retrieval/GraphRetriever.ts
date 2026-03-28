@@ -18,7 +18,17 @@ export class GraphRetriever implements IBlockRetriever {
     const direction = input.direction ?? "both";
     const relationTypes = input.relationTypes ?? [RelationType.CONTEXT, RelationType.FOLLOWS];
     const depth = input.depth ?? 1;
-    const confidenceMap = await this.buildConfidenceMap(relationTypes);
+    const traversalNodes = this.collectTraversalNodes({
+      seedIds: input.seedBlockIds,
+      direction,
+      relationTypes,
+      depth
+    });
+    const confidenceMap = await this.buildConfidenceMapForNodes({
+      nodeIds: traversalNodes,
+      direction,
+      relationTypes
+    });
     const scoreMap = this.weightedTraverse({
       seedIds: input.seedBlockIds,
       direction,
@@ -48,21 +58,100 @@ export class GraphRetriever implements IBlockRetriever {
     return hits.sort((a, b) => b.score - a.score).slice(0, input.topK);
   }
 
-  private async buildConfidenceMap(relationTypes: RelationType[]): Promise<Map<string, number>> {
+  private async buildConfidenceMapForNodes(input: {
+    nodeIds: Set<string>;
+    direction: RetrievalInput["direction"];
+    relationTypes: RelationType[];
+  }): Promise<Map<string, number>> {
+    const { nodeIds, direction, relationTypes } = input;
     const allowType = (type: RelationType): boolean =>
       relationTypes.length === 0 || relationTypes.includes(type);
+
     const map = new Map<string, number>();
-    const relations = await this.relationStore.listAll();
-    for (const relation of relations) {
-      if (!allowType(relation.type)) continue;
-      const key = edgeKey(relation.src, relation.dst, relation.type);
-      const confidence = clampConfidence(relation.confidence ?? defaultConfidence(relation.type));
-      const existing = map.get(key);
-      if (existing === undefined || existing < confidence) {
-        map.set(key, confidence);
+    const outgoingNeeded = direction === "outgoing" || direction === "both";
+    const incomingNeeded = direction === "incoming" || direction === "both";
+
+    const outgoingTasks: Array<Promise<void>> = [];
+    const incomingTasks: Array<Promise<void>> = [];
+
+    for (const nodeId of nodeIds) {
+      if (outgoingNeeded) {
+        outgoingTasks.push(
+          Promise.resolve(this.relationStore.listOutgoing(nodeId)).then((relations) => {
+            for (const relation of relations) {
+              if (!allowType(relation.type)) continue;
+              const key = edgeKey(relation.src, relation.dst, relation.type);
+              const confidence = clampConfidence(relation.confidence ?? defaultConfidence(relation.type));
+              const existing = map.get(key);
+              if (existing === undefined || existing < confidence) {
+                map.set(key, confidence);
+              }
+            }
+          })
+        );
+      }
+
+      if (incomingNeeded) {
+        incomingTasks.push(
+          Promise.resolve(this.relationStore.listIncoming(nodeId)).then((relations) => {
+            for (const relation of relations) {
+              if (!allowType(relation.type)) continue;
+              const key = edgeKey(relation.src, relation.dst, relation.type);
+              const confidence = clampConfidence(relation.confidence ?? defaultConfidence(relation.type));
+              const existing = map.get(key);
+              if (existing === undefined || existing < confidence) {
+                map.set(key, confidence);
+              }
+            }
+          })
+        );
       }
     }
+
+    await Promise.all(outgoingTasks);
+    await Promise.all(incomingTasks);
+
     return map;
+  }
+
+  private collectTraversalNodes(input: {
+    seedIds: string[];
+    direction: RetrievalInput["direction"];
+    relationTypes: RelationType[];
+    depth: number;
+  }): Set<string> {
+    const allowType = (type: RelationType): boolean =>
+      input.relationTypes.length === 0 || input.relationTypes.includes(type);
+    const visited = new Set(input.seedIds);
+    let active = new Set(input.seedIds);
+
+    for (let step = 1; step <= input.depth; step += 1) {
+      const next = new Set<string>();
+      for (const nodeId of active) {
+        if (input.direction === "outgoing" || input.direction === "both") {
+          for (const edge of this.graph.getOutgoingTyped(nodeId)) {
+            if (!allowType(edge.type)) continue;
+            if (!visited.has(edge.blockId)) {
+              visited.add(edge.blockId);
+              next.add(edge.blockId);
+            }
+          }
+        }
+        if (input.direction === "incoming" || input.direction === "both") {
+          for (const edge of this.graph.getIncomingTyped(nodeId)) {
+            if (!allowType(edge.type)) continue;
+            if (!visited.has(edge.blockId)) {
+              visited.add(edge.blockId);
+              next.add(edge.blockId);
+            }
+          }
+        }
+      }
+      if (next.size === 0) break;
+      active = next;
+    }
+
+    return visited;
   }
 
   private weightedTraverse(input: {

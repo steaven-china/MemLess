@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { loadConfig } from "../src/config.js";
+import { ensureDefaultUserConfigFiles } from "../src/config/toml.js";
 
 const tempDirs: string[] = [];
 
@@ -31,6 +32,7 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     const filePath = await makeTempPath();
     const tagsPath = path.join(path.dirname(filePath), "tags.toml");
 
+    ensureDefaultUserConfigFiles({ configFilePath: filePath });
     const config = loadConfig({}, { userTomlPath: filePath });
     expect(config.service.provider).toBe("rule-based");
 
