@@ -1,3 +1,4 @@
+import type { I18n } from "../i18n/index.js";
 import {
   ChatCompletionProvider,
   type ChatCompletionProviderConfig,
@@ -14,6 +15,7 @@ export class DeepSeekReasonerProvider extends ChatCompletionProvider {
   constructor(
     config: DeepSeekReasonerProviderConfig,
     options?: {
+      i18n?: I18n;
       onTrace?: ChatCompletionTraceCallback;
     }
   ) {
@@ -25,6 +27,7 @@ export class DeepSeekReasonerProvider extends ChatCompletionProvider {
     super(providerConfig, {
       providerName: "DeepSeek",
       defaultBaseUrl: "https://api.deepseek.com/v1",
+      i18n: options?.i18n,
       onTrace: options?.onTrace
     });
   }

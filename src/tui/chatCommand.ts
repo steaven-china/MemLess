@@ -1,3 +1,5 @@
+import type { I18n } from "../i18n/index.js";
+
 export type TuiInputAction =
   | { type: "message"; text: string }
   | { type: "help" }
@@ -15,12 +17,12 @@ export type TuiInputAction =
   | { type: "read"; path: string }
   | { type: "invalid"; reason: string };
 
-export function parseTuiInput(rawInput: string): TuiInputAction {
+export function parseTuiInput(rawInput: string, i18n: I18n): TuiInputAction {
   const input = rawInput.trim();
   if (!input) {
     return {
       type: "invalid",
-      reason: "输入不能为空。"
+      reason: i18n.t("tui.input.empty")
     };
   }
 
@@ -75,7 +77,7 @@ export function parseTuiInput(rawInput: string): TuiInputAction {
     }
     return {
       type: "invalid",
-      reason: "用法: /mode <chat|code|plan>"
+      reason: i18n.t("tui.input.usage.mode")
     };
   }
 
@@ -84,7 +86,7 @@ export function parseTuiInput(rawInput: string): TuiInputAction {
     if (!query) {
       return {
         type: "invalid",
-        reason: "用法: /ctx <query>"
+        reason: i18n.t("tui.input.usage.ctx")
       };
     }
     return {
@@ -111,7 +113,7 @@ export function parseTuiInput(rawInput: string): TuiInputAction {
     if (!pathInput) {
       return {
         type: "invalid",
-        reason: "用法: /cat <file>"
+        reason: i18n.t("tui.input.usage.read")
       };
     }
     return {
@@ -122,7 +124,7 @@ export function parseTuiInput(rawInput: string): TuiInputAction {
 
   return {
     type: "invalid",
-    reason: `未知命令: ${input}。输入 /help 查看可用命令。`
+    reason: i18n.t("tui.input.unknown", { input })
   };
 }
 

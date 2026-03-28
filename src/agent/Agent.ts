@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import type { Context, MemoryEvent } from "../types.js";
+import type { I18n } from "../i18n/index.js";
 import { createId } from "../utils/id.js";
 import type { IMemoryManager } from "../memory/IMemoryManager.js";
 import { ProactiveDialoguePlanner } from "../proactive/ProactiveDialoguePlanner.js";
@@ -36,6 +37,7 @@ export interface AgentOptions {
   traceRecorder?: IDebugTraceRecorder;
   proactivePlanner?: ProactiveDialoguePlanner;
   proactiveActuator?: ProactiveActuator;
+  i18n?: I18n;
 }
 
 export interface AgentGenerateOptions {
@@ -44,7 +46,6 @@ export interface AgentGenerateOptions {
 
 export class Agent {
   private static readonly MAX_TOOL_ROUNDS = 6;
-  private static readonly TIMER_WAKEUP_QUERY = "继续当前任务";
   private readonly systemPrompt: string;
   private readonly toolExecutor?: IAgentToolExecutor;
   private readonly introduction?: string;
@@ -52,6 +53,7 @@ export class Agent {
   private readonly traceRecorder?: IDebugTraceRecorder;
   private readonly proactivePlanner?: ProactiveDialoguePlanner;
   private readonly proactiveActuator?: ProactiveActuator;
+  private readonly i18n?: I18n;
   private proactiveTickRunning = false;
 
   constructor(
@@ -61,6 +63,7 @@ export class Agent {
   ) {
     const basePrompt =
       options.systemPrompt ??
+      options.i18n?.t("agent.system.default") ??
       "You are a practical AI assistant. Use provided memory context as high-priority factual grounding.";
     const agentsGuidelines =
       options.includeAgentsMd === false
@@ -72,14 +75,15 @@ export class Agent {
     this.traceRecorder = options.traceRecorder;
     this.proactivePlanner = options.proactivePlanner;
     this.proactiveActuator = options.proactiveActuator;
+    this.i18n = options.i18n;
     const toolGuidelines = this.toolExecutor?.instructions();
 
     const parts = [basePrompt];
     if (agentsGuidelines) {
-      parts.push(`=== WORKSPACE AGENTS GUIDELINES ===\n${agentsGuidelines}`);
+      parts.push(`${this.i18n?.t("agent.section.guidelines") ?? "=== WORKSPACE AGENTS GUIDELINES ==="}\n${agentsGuidelines}`);
     }
     if (toolGuidelines) {
-      parts.push(`=== TOOL USE PROTOCOL ===\n${toolGuidelines}`);
+      parts.push(`${this.i18n?.t("agent.section.tool_protocol") ?? "=== TOOL USE PROTOCOL ==="}\n${toolGuidelines}`);
     }
     this.systemPrompt = parts.join("\n\n");
   }
@@ -156,8 +160,14 @@ export class Agent {
     this.proactiveTickRunning = true;
     try {
       await this.memoryManager.tickProactiveWakeup();
-      const context = await this.memoryManager.getContext(Agent.TIMER_WAKEUP_QUERY, "timer");
-      const proactiveText = await this.maybeProactiveWakeup(Agent.TIMER_WAKEUP_QUERY, context);
+      const context = await this.memoryManager.getContext(
+        this.i18n?.t("agent.timer.wakeup_query") ?? "continue current task",
+        "timer"
+      );
+      const proactiveText = await this.maybeProactiveWakeup(
+        this.i18n?.t("agent.timer.wakeup_query") ?? "continue current task",
+        context
+      );
       this.trace("proactive.timer.tick", {
         proactiveText
       });
@@ -171,7 +181,7 @@ export class Agent {
     const systemParts = [this.systemPrompt];
     if (this.shouldInjectIntroduction(context)) {
       systemParts.push(
-        `=== INTRODUCTION (NO MEMORY BLOCKS AVAILABLE) ===\n${this.introduction}`
+        `${this.i18n?.t("agent.introduction.title") ?? "=== INTRODUCTION (NO MEMORY BLOCKS AVAILABLE) ==="}\n${this.introduction}`
       );
     }
     systemParts.push(context.formatted);
@@ -255,6 +265,7 @@ export class Agent {
           messages.push({
             role: "user",
             content:
+              this.i18n?.t("agent.tool.parse.invalid") ??
               'TOOL_RESULT {"tool":"tool_call.parser","ok":false,"content":"Invalid tool-call payload. Please return strict JSON with name and args (or tool/arguments)."}'
           });
           continue;
@@ -281,7 +292,9 @@ export class Agent {
       messages.push({ role: "user", content: formatToolResult(call, result) });
     }
 
-    const fallback = `Tool call rounds exceeded limit (${Agent.MAX_TOOL_ROUNDS}). Please provide a concise best-effort answer with available information.`;
+    const fallback =
+      this.i18n?.t("agent.tool.round.limit", { limit: Agent.MAX_TOOL_ROUNDS }) ??
+      `Tool call rounds exceeded limit (${Agent.MAX_TOOL_ROUNDS}). Please provide a concise best-effort answer with available information.`;
     this.trace("tool.round.limit", {
       maxToolRounds: Agent.MAX_TOOL_ROUNDS,
       fallback

@@ -129,6 +129,7 @@ function mapComponent(value: unknown, filePath: string, fieldPath: string): Deep
   const table = expectTable(value, filePath, fieldPath);
   const output: DeepPartial<ComponentConfig> = {};
 
+  assignString(output, "locale", table.locale, filePath, `${fieldPath}.locale`);
   assignString(output, "chunkStrategy", table.chunkStrategy, filePath, `${fieldPath}.chunkStrategy`);
   assignString(output, "storageBackend", table.storageBackend, filePath, `${fieldPath}.storageBackend`);
   assignString(output, "sqliteFilePath", table.sqliteFilePath, filePath, `${fieldPath}.sqliteFilePath`);

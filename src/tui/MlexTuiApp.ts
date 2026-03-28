@@ -1,5 +1,6 @@
 import blessed from "blessed";
 
+import type { I18n } from "../i18n/index.js";
 import type { AppConfig } from "../config.js";
 import type { Runtime } from "../container.js";
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
@@ -16,7 +17,6 @@ const DEFAULT_TRACE_LIMIT = 200;
 const MAX_TRACE_LIMIT = 5_000;
 const DEFAULT_LIST_LIMIT = 200;
 const DEFAULT_READ_MAX_BYTES = 64 * 1024;
-const SESSION_TITLE_PREFIX = "Session";
 
 type ConversationRole = "user" | "assistant" | "system";
 type AgentMode = "chat" | "code" | "plan";
@@ -69,6 +69,7 @@ const THEME = {
 
 export interface MlexTuiAppOptions {
   runtime: Runtime;
+  i18n: I18n;
   fileService: ReadonlyFileService;
   traceRecorder: IDebugTraceRecorder;
   streamEnabled: boolean;
@@ -111,7 +112,7 @@ export class MlexTuiApp {
       dockBorders: true,
       fullUnicode: true,
       forceUnicode: true,
-      title: "MLEX TUI"
+      title: options.i18n.t("tui.title")
     });
 
     this.header = blessed.box({
@@ -133,7 +134,7 @@ export class MlexTuiApp {
       left: 0,
       width: "22%",
       height: "100%-5",
-      label: " Sessions ",
+      label: options.i18n.t("tui.label.sessions"),
       border: "line",
       tags: true,
       keys: true,
@@ -171,7 +172,7 @@ export class MlexTuiApp {
       left: "22%",
       width: "46%",
       height: "100%-5",
-      label: " Session ",
+      label: options.i18n.t("tui.label.session"),
       border: "line",
       tags: true,
       keys: true,
@@ -214,7 +215,7 @@ export class MlexTuiApp {
       left: 0,
       width: "100%",
       height: "40%",
-      label: " Activity ",
+      label: options.i18n.t("tui.label.activity"),
       border: "line",
       tags: true,
       keys: true,
@@ -246,7 +247,7 @@ export class MlexTuiApp {
       left: 0,
       width: "100%",
       height: "60%",
-      label: " Inspector ",
+      label: options.i18n.t("tui.label.inspector"),
       border: "line",
       scrollable: true,
       alwaysScroll: true,
@@ -280,7 +281,7 @@ export class MlexTuiApp {
       height: 4,
       border: "line",
       inputOnFocus: true,
-      label: " Prompt (Enter send, Ctrl+X stop, Ctrl+R resend, Ctrl+K palette) ",
+      label: options.i18n.t("tui.label.prompt"),
       keys: true,
       mouse: true,
       style: {
@@ -307,8 +308,8 @@ export class MlexTuiApp {
 
     this.screen.on("warning", (text) => {
       this.pushActivity("warn", text);
-      this.setInspector("Terminal Warning", text);
-      this.setStatus("Terminal warning received.");
+      this.setInspector(this.options.i18n.t("tui.inspector.terminal_warning"), text);
+      this.setStatus(this.options.i18n.t("tui.warning.terminal"));
       this.screen.render();
     });
 
@@ -327,9 +328,9 @@ export class MlexTuiApp {
     this.renderConversation(false);
     this.renderActivity(false);
     this.renderQuickPalette();
-    this.addSystemLine("MLEX Workspace 已启动。输入 /help 查看命令。");
-    this.pushActivity("info", "Session started.");
-    this.setStatus("Ready");
+    this.addSystemLine(this.options.i18n.t("tui.system.started"));
+    this.pushActivity("info", this.options.i18n.t("tui.activity.session_started"));
+    this.setStatus(this.options.i18n.t("tui.status.ready"));
     this.focusInput();
     this.screen.render();
 
@@ -345,9 +346,19 @@ export class MlexTuiApp {
     });
     this.screen.key(["C-p"], () => {
       this.streamEnabled = !this.streamEnabled;
-      this.pushActivity("info", `Streaming ${this.streamEnabled ? "enabled" : "disabled"}.`);
+      this.pushActivity("info", this.options.i18n.t("tui.activity.streaming_toggled", {
+        state: this.streamEnabled
+          ? this.options.i18n.t("tui.state.enabled")
+          : this.options.i18n.t("tui.state.disabled")
+      }));
       this.refreshHeader();
-      this.setStatus(`Streaming ${this.streamEnabled ? "ON" : "OFF"}`);
+      this.setStatus(
+        this.options.i18n.t("tui.status.streaming_toggled", {
+          state: this.streamEnabled
+            ? this.options.i18n.t("tui.state.on")
+            : this.options.i18n.t("tui.state.off")
+        })
+      );
       this.screen.render();
     });
     this.screen.key(["C-t"], () => {
@@ -355,7 +366,7 @@ export class MlexTuiApp {
     });
     this.screen.key(["C-k"], () => {
       this.renderQuickPalette();
-      this.pushActivity("info", "Opened quick palette.");
+      this.pushActivity("info", this.options.i18n.t("tui.activity.quick_palette_opened"));
       this.inspector.focus();
       this.screen.render();
     });
@@ -387,27 +398,27 @@ export class MlexTuiApp {
       session.updatedAt = Date.now();
       this.renderSessionList(false);
       this.renderConversation(false);
-      this.pushActivity("info", `Cleared messages in ${session.title}.`);
-      this.setStatus("Current session cleared.");
+      this.pushActivity("info", this.options.i18n.t("tui.activity.current_session_cleared", { title: session.title }));
+      this.setStatus(this.options.i18n.t("tui.status.current_session_cleared"));
       this.screen.render();
       this.focusInput();
     });
     this.screen.key(["tab"], () => {
       if (this.screen.focused === this.inputBox) {
         this.sessionList.focus();
-        this.setStatus("Focus: Sessions");
+        this.setStatus(this.options.i18n.t("tui.status.focus_sessions"));
       } else if (this.screen.focused === this.sessionList) {
         this.conversation.focus();
-        this.setStatus("Focus: Session");
+        this.setStatus(this.options.i18n.t("tui.status.focus_session"));
       } else if (this.screen.focused === this.conversation) {
         this.activity.focus();
-        this.setStatus("Focus: Activity");
+        this.setStatus(this.options.i18n.t("tui.status.focus_activity"));
       } else if (this.screen.focused === this.activity) {
         this.inspector.focus();
-        this.setStatus("Focus: Inspector");
+        this.setStatus(this.options.i18n.t("tui.status.focus_inspector"));
       } else {
         this.focusInput();
-        this.setStatus("Focus: Prompt");
+        this.setStatus(this.options.i18n.t("tui.status.focus_prompt"));
       }
       this.screen.render();
     });
@@ -429,7 +440,7 @@ export class MlexTuiApp {
       }, 0);
     });
     this.inputBox.on("cancel", () => {
-      this.setStatus("Input canceled.");
+      this.setStatus(this.options.i18n.t("tui.status.input_canceled"));
       this.screen.render();
     });
   }
@@ -438,7 +449,7 @@ export class MlexTuiApp {
     if (this.closing) return;
     if (this.busy) {
       this.sessionList.select(this.activeSessionIndex);
-      this.setStatus("Busy: wait for current request.");
+      this.setStatus(this.options.i18n.t("tui.status.busy_wait"));
       this.screen.render();
       return;
     }
@@ -447,14 +458,14 @@ export class MlexTuiApp {
 
   private setMode(nextMode: AgentMode, source: "hotkey" | "command"): void {
     if (this.mode === nextMode) {
-      this.setStatus(`Mode already: ${nextMode}`);
+      this.setStatus(this.options.i18n.t("tui.status.mode_already", { mode: nextMode }));
       this.screen.render();
       return;
     }
     this.mode = nextMode;
-    this.pushActivity("info", `Mode -> ${nextMode} (${source}).`);
+    this.pushActivity("info", this.options.i18n.t("tui.activity.mode_switched", { mode: nextMode, source }));
     this.refreshHeader();
-    this.setStatus(`Mode switched to ${nextMode}`);
+    this.setStatus(this.options.i18n.t("tui.status.mode_switched", { mode: nextMode }));
     this.renderQuickPalette();
     this.screen.render();
   }
@@ -464,7 +475,7 @@ export class MlexTuiApp {
     const index = this.sessions.length + 1;
     const session: SessionState = {
       id: `s-${now}-${index}`,
-      title: `${SESSION_TITLE_PREFIX} ${index}`,
+      title: `${this.options.i18n.t("tui.session.title_prefix")} ${index}`,
       timeline: [],
       createdAt: now,
       updatedAt: now
@@ -493,9 +504,9 @@ export class MlexTuiApp {
     this.renderConversation(false);
     this.refreshHeader();
     if (source !== "new") {
-      this.pushActivity("info", `Switched to ${session.title} (${source}).`);
+      this.pushActivity("info", this.options.i18n.t("tui.activity.session_switched", { title: session.title, source }));
     }
-    this.setStatus(`Active session: ${session.title}`);
+    this.setStatus(this.options.i18n.t("tui.status.active_session", { title: session.title }));
     this.screen.render();
     this.focusInput();
   }
@@ -514,13 +525,16 @@ export class MlexTuiApp {
 
   private openEditorForInput(): void {
     if (this.closing) return;
-    this.setStatus("Opening $EDITOR...");
+    this.setStatus(this.options.i18n.t("tui.status.opening_editor"));
     this.screen.render();
     this.inputBox.readEditor((error, value) => {
       if (error) {
-        this.addSystemLine(`打开编辑器失败: ${toErrorMessage(error)}`);
-        this.pushActivity("error", `Editor open failed: ${toErrorMessage(error)}`);
-        this.setStatus("Editor failed.");
+        this.addSystemLine(this.options.i18n.t("tui.system.editor_open_failed", { error: toErrorMessage(error) }));
+        this.pushActivity(
+          "error",
+          this.options.i18n.t("tui.activity.editor_open_failed", { error: toErrorMessage(error) })
+        );
+        this.setStatus(this.options.i18n.t("tui.status.editor_failed"));
         this.screen.render();
         this.focusInput();
         return;
@@ -528,19 +542,19 @@ export class MlexTuiApp {
       if (typeof value === "string" && value.length > 0) {
         this.inputBox.setValue(value.trim());
       }
-      this.pushActivity("info", "Editor input applied.");
-      this.setStatus("Editor applied.");
+      this.pushActivity("info", this.options.i18n.t("tui.activity.editor_applied"));
+      this.setStatus(this.options.i18n.t("tui.status.editor_applied"));
       this.screen.render();
       this.focusInput();
     });
   }
 
   private async handleInput(rawInput: string): Promise<void> {
-    const action = parseTuiInput(rawInput);
+    const action = parseTuiInput(rawInput, this.options.i18n);
     if (action.type === "invalid") {
       this.addSystemLine(action.reason);
       this.pushActivity("warn", action.reason);
-      this.setStatus("Invalid command.");
+      this.setStatus(this.options.i18n.t("tui.status.invalid_command"));
       this.screen.render();
       return;
     }
@@ -550,7 +564,7 @@ export class MlexTuiApp {
   private requestInterrupt(source: "command" | "hotkey", queueResend = false): void {
     const stream = this.activeStream;
     if (!stream) {
-      this.setStatus("No active streaming response.");
+      this.setStatus(this.options.i18n.t("tui.status.no_active_stream"));
       this.screen.render();
       return;
     }
@@ -560,7 +574,7 @@ export class MlexTuiApp {
     }
 
     if (stream.controller.signal.aborted) {
-      this.setStatus("Interrupt already requested.");
+      this.setStatus(this.options.i18n.t("tui.status.interrupt_requested"));
       this.screen.render();
       return;
     }
@@ -569,9 +583,16 @@ export class MlexTuiApp {
     stream.controller.abort();
     this.pushActivity(
       "warn",
-      `Interrupt requested (${source}${queueResend ? ", resend queued" : ""}).`
+      this.options.i18n.t("tui.activity.interrupt_requested", {
+        source,
+        resend: queueResend ? this.options.i18n.t("tui.state.resend_queued") : this.options.i18n.t("tui.state.none")
+      })
     );
-    this.setStatus(queueResend ? "Interrupting, resend queued..." : "Interrupting...");
+    this.setStatus(
+      queueResend
+        ? this.options.i18n.t("tui.status.interrupting_resend")
+        : this.options.i18n.t("tui.status.interrupting")
+    );
     this.refreshHeader();
     this.screen.render();
   }
@@ -583,15 +604,15 @@ export class MlexTuiApp {
   private async resendLastPrompt(): Promise<void> {
     const prompt = this.lastInterruptedPrompt ?? this.lastUserPrompt;
     if (!prompt) {
-      this.addSystemLine("没有可重发的用户消息。先发送一条消息。");
-      this.pushActivity("warn", "Resend requested but no prompt exists.");
-      this.setStatus("No prompt to resend.");
+      this.addSystemLine(this.options.i18n.t("tui.system.no_resend"));
+      this.pushActivity("warn", this.options.i18n.t("tui.activity.resend_no_prompt"));
+      this.setStatus(this.options.i18n.t("tui.status.no_prompt_resend"));
       return;
     }
 
-    this.pushActivity("info", `Resending prompt (${prompt.length} chars).`);
-    this.addSystemLine("重发上一条用户消息。");
-    this.setStatus("Resending...");
+    this.pushActivity("info", this.options.i18n.t("tui.activity.resending_prompt", { count: prompt.length }));
+    this.addSystemLine(this.options.i18n.t("tui.system.resend"));
+    this.setStatus(this.options.i18n.t("tui.status.resending"));
     await this.handleMessage(prompt);
   }
 
@@ -612,9 +633,9 @@ export class MlexTuiApp {
     }
 
     if (this.busy) {
-      this.addSystemLine("系统正在处理上一条请求，请稍候。流式中可用 /stop 或 Ctrl+X 打断。");
-      this.pushActivity("warn", "Busy: ignored new action.");
-      this.setStatus("Busy.");
+      this.addSystemLine(this.options.i18n.t("tui.system.busy"));
+      this.pushActivity("warn", this.options.i18n.t("tui.activity.busy_ignored"));
+      this.setStatus(this.options.i18n.t("tui.status.busy"));
       this.screen.render();
       return;
     }
@@ -629,9 +650,9 @@ export class MlexTuiApp {
           const session = this.createSession(true);
           this.renderSessionList(false);
           this.renderConversation(false);
-          this.addSystemLine(`已创建新会话：${session.title}。`);
-          this.pushActivity("info", `Created ${session.title}.`);
-          this.setStatus(`${session.title} ready.`);
+          this.addSystemLine(this.options.i18n.t("tui.system.new_session", { title: session.title }));
+          this.pushActivity("info", this.options.i18n.t("tui.activity.new_session_created", { title: session.title }));
+          this.setStatus(this.options.i18n.t("tui.status.new_session_ready", { title: session.title }));
           this.renderQuickPalette();
           break;
         }
@@ -646,26 +667,26 @@ export class MlexTuiApp {
           break;
         case "help":
           this.renderQuickPalette();
-          this.pushActivity("info", "Displayed help panel.");
-          this.addSystemLine("帮助已显示在右侧 Inspector。");
+          this.pushActivity("info", this.options.i18n.t("tui.activity.help_shown"));
+          this.addSystemLine(this.options.i18n.t("tui.system.help_shown"));
           break;
         case "seal":
           await this.options.runtime.agent.sealMemory();
-          this.pushActivity("info", "Sealed current active block.");
-          this.addSystemLine("当前 active block 已封存。");
+          this.pushActivity("info", this.options.i18n.t("tui.activity.sealed"));
+          this.addSystemLine(this.options.i18n.t("tui.system.sealed"));
           break;
         case "context": {
           const context = await this.options.runtime.agent.getContext(action.query);
-          this.setInspector("Context", context.formatted);
-          this.pushActivity("info", `Loaded context: ${context.blocks.length} blocks.`);
-          this.addSystemLine(`上下文已载入：${context.blocks.length} blocks。`);
+          this.setInspector(this.options.i18n.t("tui.inspector.context_title"), context.formatted);
+          this.pushActivity("info", this.options.i18n.t("tui.activity.context_loaded", { count: context.blocks.length }));
+          this.addSystemLine(this.options.i18n.t("tui.system.context_loaded", { count: context.blocks.length }));
           break;
         }
         case "config": {
           const sanitized = this.options.sanitizeConfig(this.options.runtime.config);
-          this.setInspector("Config", JSON.stringify(sanitized, null, 2));
-          this.pushActivity("info", "Loaded runtime config.");
-          this.addSystemLine("配置已显示（敏感字段已脱敏）。");
+          this.setInspector(this.options.i18n.t("tui.inspector.config_title"), JSON.stringify(sanitized, null, 2));
+          this.pushActivity("info", this.options.i18n.t("tui.activity.config_loaded"));
+          this.addSystemLine(this.options.i18n.t("tui.system.config_shown"));
           break;
         }
         case "trace": {
@@ -675,28 +696,30 @@ export class MlexTuiApp {
             total: this.options.traceRecorder.size(),
             entries
           };
-          this.setInspector("Trace", JSON.stringify(payload, null, 2));
-          this.pushActivity("info", `Loaded trace entries: ${entries.length}/${payload.total}.`);
-          this.addSystemLine(`Trace 已加载：${entries.length}/${payload.total}。`);
+          this.setInspector(this.options.i18n.t("tui.inspector.trace_title"), JSON.stringify(payload, null, 2));
+          this.pushActivity("info", this.options.i18n.t("tui.activity.trace_loaded", { count: entries.length, total: payload.total }));
+          this.addSystemLine(
+            this.options.i18n.t("tui.system.trace_loaded", { count: entries.length, total: payload.total })
+          );
           break;
         }
         case "traceClear":
           this.options.traceRecorder.clear();
-          this.pushActivity("info", "Trace cleared.");
-          this.addSystemLine("Trace 已清空。");
+          this.pushActivity("info", this.options.i18n.t("tui.activity.trace_cleared"));
+          this.addSystemLine(this.options.i18n.t("tui.system.trace_cleared"));
           break;
         case "list": {
           const entries = await this.options.fileService.list(action.path, DEFAULT_LIST_LIMIT);
-          this.setInspector("Files", formatFileList(entries, action.path));
-          this.pushActivity("info", `Listed files: ${action.path}`);
-          this.addSystemLine(`已列出目录：${action.path}`);
+          this.setInspector(this.options.i18n.t("tui.inspector.files_title"), formatFileList(entries, action.path, this.options.i18n));
+          this.pushActivity("info", this.options.i18n.t("tui.activity.files_listed", { path: action.path }));
+          this.addSystemLine(this.options.i18n.t("tui.system.listed", { path: action.path }));
           break;
         }
         case "read": {
           const result = await this.options.fileService.read(action.path, DEFAULT_READ_MAX_BYTES);
-          this.setInspector("File", formatFileRead(result));
-          this.pushActivity("info", `Read file: ${action.path}`);
-          this.addSystemLine(`已读取文件：${action.path}`);
+          this.setInspector(this.options.i18n.t("tui.inspector.file_title"), formatFileRead(result, this.options.i18n));
+          this.pushActivity("info", this.options.i18n.t("tui.activity.file_read", { path: action.path }));
+          this.addSystemLine(this.options.i18n.t("tui.system.read", { path: action.path }));
           break;
         }
 
@@ -705,12 +728,12 @@ export class MlexTuiApp {
           this.addSystemLine(action.reason);
           break;
       }
-      this.setStatus("Ready");
+      this.setStatus(this.options.i18n.t("tui.status.ready"));
     } catch (error) {
       const message = toErrorMessage(error);
       this.pushActivity("error", message);
-      this.addSystemLine(`执行失败: ${message}`);
-      this.setStatus("Error");
+      this.addSystemLine(this.options.i18n.t("tui.system.failed", { message }));
+      this.setStatus(this.options.i18n.t("tui.status.error"));
     } finally {
       this.busy = false;
       this.refreshHeader();
@@ -722,10 +745,10 @@ export class MlexTuiApp {
   private async handleMessage(input: string): Promise<void> {
     this.lastUserPrompt = input;
     this.addUserLine(input);
-    this.pushActivity("info", `User prompt (${input.length} chars).`);
+    this.pushActivity("info", this.options.i18n.t("tui.activity.user_prompt", { count: input.length }));
 
     if (this.streamEnabled) {
-      this.setStatus("Streaming...");
+      this.setStatus(this.options.i18n.t("tui.status.streaming"));
       const session = this.getActiveSession();
       const requestId = ++this.streamRequestCounter;
       const assistantIndex = this.appendConversation("assistant", "", true);
@@ -750,7 +773,9 @@ export class MlexTuiApp {
             if (stream.controller.signal.aborted || stream.interrupted) return;
             stream.partialText += token;
             this.updateConversation(assistantIndex, stream.partialText, true);
-            this.setStatus(`Streaming ${stream.partialText.length} chars...`);
+            this.setStatus(
+              this.options.i18n.t("tui.status.streaming_chars", { count: stream.partialText.length })
+            );
             this.screen.render();
           },
           { signal: stream.controller.signal }
@@ -763,10 +788,16 @@ export class MlexTuiApp {
         this.updateConversation(assistantIndex, response.text, false);
         if (response.proactiveText) {
           this.addAgentLine(response.proactiveText);
-          this.pushActivity("info", `Proactive wakeup (${response.proactiveText.length} chars, stream).`);
+          this.pushActivity(
+            "info",
+            this.options.i18n.t("tui.activity.proactive_wakeup_stream", { count: response.proactiveText.length })
+          );
         }
         this.lastInterruptedPrompt = undefined;
-        this.pushActivity("info", `Assistant replied (${response.text.length} chars, stream).`);
+        this.pushActivity(
+          "info",
+          this.options.i18n.t("tui.activity.assistant_replied_stream", { count: response.text.length })
+        );
         this.showPostResponseInspector(response.text, response.context.formatted);
         return;
       } catch (error) {
@@ -776,13 +807,13 @@ export class MlexTuiApp {
           throw error;
         }
 
-        const interruptedText = formatInterruptedAssistantText(stream.partialText);
+        const interruptedText = formatInterruptedAssistantText(stream.partialText, this.options.i18n);
         this.updateConversation(assistantIndex, interruptedText, false);
         this.lastInterruptedPrompt = input;
-        this.pushActivity("warn", "Assistant response interrupted.");
+        this.pushActivity("warn", this.options.i18n.t("tui.activity.response_interrupted"));
         this.setInspector(
-          "Interrupted",
-          "当前回复已打断。可输入 /resend、/retry，或按 Ctrl+R 重新发送。"
+          this.options.i18n.t("tui.inspector.interrupted_title"),
+          this.options.i18n.t("tui.system.interrupted")
         );
 
         if (this.isActiveStream(requestId)) {
@@ -794,14 +825,14 @@ export class MlexTuiApp {
         this.scheduleResendAfterInterrupt = false;
 
         if (shouldAutoResend) {
-          this.setStatus("Interrupted. Resending...");
+          this.setStatus(this.options.i18n.t("tui.status.interrupted_resending"));
           this.screen.render();
           await this.handleMessage(input);
           return;
         }
 
-        this.addSystemLine("当前回复已中断。可用 /resend 或 Ctrl+R 重发。输入 /stop 可再次打断。");
-        this.setStatus("Interrupted.");
+        this.addSystemLine(this.options.i18n.t("tui.system.interrupted"));
+        this.setStatus(this.options.i18n.t("tui.status.interrupted"));
         this.screen.render();
         return;
       } finally {
@@ -811,44 +842,55 @@ export class MlexTuiApp {
       }
     }
 
-    this.setStatus("Thinking...");
+    this.setStatus(this.options.i18n.t("tui.status.thinking"));
     const response = await this.options.runtime.agent.respond(input);
     this.addAgentLine(response.text);
     if (response.proactiveText) {
       this.addAgentLine(response.proactiveText);
-      this.pushActivity("info", `Proactive wakeup (${response.proactiveText.length} chars).`);
+      this.pushActivity(
+        "info",
+        this.options.i18n.t("tui.activity.proactive_wakeup", { count: response.proactiveText.length })
+      );
     }
     this.lastInterruptedPrompt = undefined;
-    this.pushActivity("info", `Assistant replied (${response.text.length} chars).`);
+    this.pushActivity("info", this.options.i18n.t("tui.activity.assistant_replied", { count: response.text.length }));
     this.showPostResponseInspector(response.text, response.context.formatted);
   }
 
   private showPostResponseInspector(responseText: string, formattedContext: string): void {
     if (this.showContextByDefault) {
-      this.setInspector("Context", formattedContext);
+      this.setInspector(this.options.i18n.t("tui.inspector.context_title"), formattedContext);
       return;
     }
-    this.setInspector("Assistant", responseText);
+    this.setInspector(this.options.i18n.t("tui.inspector.assistant_title"), responseText);
   }
 
   private refreshHeader(): void {
     const state = this.activeStream
-      ? "{yellow-fg}STREAM{/yellow-fg}"
+      ? this.options.i18n.t("tui.header.state_stream")
       : this.busy
-        ? "{yellow-fg}BUSY{/yellow-fg}"
-        : "{gray-fg}READY{/gray-fg}";
-    const stream = this.streamEnabled ? "{cyan-fg}ON{/cyan-fg}" : "{light-black-fg}OFF{/light-black-fg}";
+        ? this.options.i18n.t("tui.header.state_busy")
+        : this.options.i18n.t("tui.header.state_ready");
+    const stream = this.streamEnabled
+      ? this.options.i18n.t("tui.header.stream_on")
+      : this.options.i18n.t("tui.header.stream_off");
     const mode =
       this.mode === "code"
-        ? "{cyan-fg}CODE{/cyan-fg}"
+        ? this.options.i18n.t("tui.header.mode_code")
         : this.mode === "plan"
-          ? "{yellow-fg}PLAN{/yellow-fg}"
-          : "{gray-fg}CHAT{/gray-fg}";
+          ? this.options.i18n.t("tui.header.mode_plan")
+          : this.options.i18n.t("tui.header.mode_chat");
     const activeSession = this.getActiveSession();
     const messages = `{gray-fg}${activeSession.timeline.length}{/gray-fg}`;
     const sessions = `{gray-fg}${this.sessions.length}{/gray-fg}`;
     this.header.setContent(
-      ` MLEX Workspace | State: ${state} | Mode: ${mode} | Stream: ${stream} | Sessions: ${sessions} | Msg: ${messages} | Ctrl+X Stop | Ctrl+R Resend | Ctrl+K Palette | Ctrl+C Exit `
+      this.options.i18n.t("tui.header.template", {
+        state,
+        mode,
+        stream,
+        sessions,
+        messages
+      })
     );
   }
 
@@ -865,11 +907,11 @@ export class MlexTuiApp {
 
   private renderQuickPalette(): void {
     const lines = [
-      "Mode",
-      `current: ${this.mode}`,
+      this.options.i18n.t("tui.palette.section_mode"),
+      this.options.i18n.t("tui.palette.current_mode", { mode: this.mode }),
       "/mode chat|code|plan",
       "",
-      "Session",
+      this.options.i18n.t("tui.palette.section_session"),
       "/new (or /clear)",
       "/resend (or /retry)",
       "/stop",
@@ -878,26 +920,26 @@ export class MlexTuiApp {
       "/trace [n]",
       "/trace-clear",
       "",
-      "Files",
+      this.options.i18n.t("tui.palette.section_files"),
       "/ls [path]",
       "/cat <file>",
       "",
-      "Hotkeys",
-      "Ctrl+1 chat mode",
-      "Ctrl+2 code mode",
-      "Ctrl+3 plan mode",
-      "Ctrl+K quick palette",
-      "Ctrl+N new session",
-      "Ctrl+R resend",
-      "Ctrl+X stop streaming",
-      "Ctrl+S seal",
-      "Ctrl+P stream on/off",
-      "Ctrl+T trace",
-      "Ctrl+L clear current session",
-      "Ctrl+E external editor",
-      "Tab focus cycle"
+      this.options.i18n.t("tui.palette.section_hotkeys"),
+      "Ctrl+1 " + this.options.i18n.t("tui.palette.hotkey_chat_mode"),
+      "Ctrl+2 " + this.options.i18n.t("tui.palette.hotkey_code_mode"),
+      "Ctrl+3 " + this.options.i18n.t("tui.palette.hotkey_plan_mode"),
+      "Ctrl+K " + this.options.i18n.t("tui.palette.hotkey_quick_palette"),
+      "Ctrl+N " + this.options.i18n.t("tui.palette.hotkey_new_session"),
+      "Ctrl+R " + this.options.i18n.t("tui.palette.hotkey_resend"),
+      "Ctrl+X " + this.options.i18n.t("tui.palette.hotkey_stop_streaming"),
+      "Ctrl+S " + this.options.i18n.t("tui.palette.hotkey_seal"),
+      "Ctrl+P " + this.options.i18n.t("tui.palette.hotkey_stream_toggle"),
+      "Ctrl+T " + this.options.i18n.t("tui.palette.hotkey_trace"),
+      "Ctrl+L " + this.options.i18n.t("tui.palette.hotkey_clear_session"),
+      "Ctrl+E " + this.options.i18n.t("tui.palette.hotkey_external_editor"),
+      this.options.i18n.t("tui.palette.hotkey_tab_cycle")
     ];
-    this.setInspector("Quick Palette", lines.join("\n"));
+      this.setInspector(this.options.i18n.t("tui.palette.title"), lines.join("\n"));
   }
 
   private addUserLine(content: string): void {
@@ -936,7 +978,7 @@ export class MlexTuiApp {
 
   private renderSessionList(autoFocusSelection: boolean): void {
     if (this.sessions.length === 0) {
-      this.sessionList.setItems(["(no sessions)"]);
+      this.sessionList.setItems([this.options.i18n.t("tui.placeholder.no_sessions")]);
       this.sessionList.select(0);
       return;
     }
@@ -945,7 +987,12 @@ export class MlexTuiApp {
       const activeMarker = index === this.activeSessionIndex ? "●" : " ";
       const updated = new Date(session.updatedAt).toLocaleTimeString();
       const count = session.timeline.length;
-      return `${activeMarker} ${session.title}  ${count} msg  ${updated}`;
+      return this.options.i18n.t("tui.session.list_item", {
+        active: activeMarker,
+        title: session.title,
+        count,
+        updated
+      });
     });
 
     this.sessionList.setItems(items);
@@ -960,13 +1007,15 @@ export class MlexTuiApp {
     this.conversation.setLabel(` ${session.title} `);
 
     if (session.timeline.length === 0) {
-      this.conversation.setContent("{light-black-fg}(empty session){/light-black-fg}");
+      this.conversation.setContent(`{light-black-fg}${this.options.i18n.t("tui.placeholder.empty_session")}{/light-black-fg}`);
       if (autoScroll) this.conversation.setScrollPerc(100);
       return;
     }
 
     const divider = "{light-black-fg}────────────────────────────────────────{/light-black-fg}";
-    const content = session.timeline.map((entry) => formatConversationEntry(entry)).join(`\n${divider}\n`);
+    const content = session.timeline
+      .map((entry) => formatConversationEntry(entry, this.options.i18n))
+      .join(`\n${divider}\n`);
     this.conversation.setContent(content);
     if (autoScroll) this.conversation.setScrollPerc(100);
   }
@@ -981,7 +1030,7 @@ export class MlexTuiApp {
 
   private renderActivity(autoScroll: boolean): void {
     if (this.activityTrail.length === 0) {
-      this.activity.setContent("{light-black-fg}(no activity){/light-black-fg}");
+      this.activity.setContent(`{light-black-fg}${this.options.i18n.t("tui.placeholder.no_activity")}{/light-black-fg}`);
       if (autoScroll) this.activity.setScrollPerc(100);
       return;
     }
@@ -996,23 +1045,25 @@ export class MlexTuiApp {
     if (this.activeStream && !this.activeStream.controller.signal.aborted) {
       this.activeStream.controller.abort();
     }
-    this.setStatus("Exiting...");
+    this.setStatus(this.options.i18n.t("tui.status.exiting"));
     this.screen.render();
     this.screen.destroy();
     this.doneResolve?.();
   }
 }
 
-function formatConversationEntry(entry: ConversationEntry): string {
+function formatConversationEntry(entry: ConversationEntry, i18n: I18n): string {
   const timestamp = new Date(entry.at).toLocaleTimeString();
   const role =
     entry.role === "user"
-      ? "{gray-fg}[YOU]{/gray-fg}"
+      ? `{gray-fg}[${i18n.t("tui.role.user")}]{/gray-fg}`
       : entry.role === "assistant"
-        ? "{cyan-fg}[AI]{/cyan-fg}"
-        : "{light-black-fg}[SYS]{/light-black-fg}";
-  const body = blessed.escape(formatForDisplay(entry.text));
-  const suffix = entry.streaming ? "\n{light-black-fg}▌ streaming...{/light-black-fg}" : "";
+        ? `{cyan-fg}[${i18n.t("tui.role.assistant")}]{/cyan-fg}`
+        : `{light-black-fg}[${i18n.t("tui.role.system")}]{/light-black-fg}`;
+  const body = blessed.escape(formatForDisplay(entry.text, i18n));
+  const suffix = entry.streaming
+    ? `\n{light-black-fg}▌ ${i18n.t("tui.status.streaming")}{/light-black-fg}`
+    : "";
   return `{bold}${role} ${timestamp}{/bold}\n${body}${suffix}`;
 }
 
@@ -1027,38 +1078,48 @@ function formatActivityEntry(entry: ActivityEntry): string {
   return `${level} {light-black-fg}${timestamp}{/light-black-fg} ${blessed.escape(entry.text)}`;
 }
 
-function formatForDisplay(content: string): string {
+function formatForDisplay(content: string, i18n: I18n): string {
   const normalized = content.replace(/\r\n/g, "\n").trim();
-  if (!normalized) return "(empty)";
+  if (!normalized) return i18n.t("tui.placeholder.empty_text");
   return normalized
     .split("\n")
     .map((line) => `  ${line}`)
     .join("\n");
 }
 
-function formatInterruptedAssistantText(content: string): string {
+function formatInterruptedAssistantText(content: string, i18n: I18n): string {
   const trimmed = content.trim();
   if (!trimmed) {
-    return "(interrupted)";
+    return i18n.t("tui.placeholder.interrupted");
   }
-  return `${trimmed}\n\n[interrupted]`;
+  return `${trimmed}\n\n${i18n.t("tui.placeholder.interrupted_suffix")}`;
 }
 
-function formatFileList(entries: ReadonlyFileEntry[], pathInput: string): string {
-  const header = `path: ${pathInput}`;
+function formatFileList(entries: ReadonlyFileEntry[], pathInput: string, i18n: I18n): string {
+  const header = i18n.t("tui.file_list.path", { path: pathInput });
   if (entries.length === 0) {
-    return `${header}\n(empty)`;
+    return `${header}\n${i18n.t("tui.placeholder.empty_text")}`;
   }
   const lines = entries.map((entry) => {
-    const prefix = entry.type === "dir" ? "[dir] " : entry.type === "file" ? "[file]" : "[other]";
-    const sizePart = typeof entry.sizeBytes === "number" ? ` ${entry.sizeBytes}B` : "";
+    const prefix =
+      entry.type === "dir"
+        ? i18n.t("tui.file_list.type_dir")
+        : entry.type === "file"
+          ? i18n.t("tui.file_list.type_file")
+          : i18n.t("tui.file_list.type_other");
+    const sizePart = typeof entry.sizeBytes === "number" ? i18n.t("tui.file_list.size_bytes", { size: entry.sizeBytes }) : "";
     return `${prefix} ${entry.path}${sizePart}`;
   });
   return `${header}\n${lines.join("\n")}`;
 }
 
-function formatFileRead(result: ReadFileResult): string {
-  const meta = `${result.path} (${result.bytes}/${result.totalBytes} bytes${result.truncated ? ", truncated" : ""})`;
+function formatFileRead(result: ReadFileResult, i18n: I18n): string {
+  const meta = i18n.t("tui.file_read.meta", {
+    path: result.path,
+    bytes: result.bytes,
+    totalBytes: result.totalBytes,
+    truncated: result.truncated ? i18n.t("tui.file_read.truncated_suffix") : ""
+  });
   return `${meta}\n\n${result.text}`;
 }
 

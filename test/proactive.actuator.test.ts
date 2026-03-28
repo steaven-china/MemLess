@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { createI18n } from "../src/i18n/index.js";
 import type { IMemoryManager } from "../src/memory/IMemoryManager.js";
 import { ProactiveActuator } from "../src/proactive/ProactiveActuator.js";
 import type { ISearchProvider, SearchQuery, SearchRecord, SearchResponse } from "../src/search/ISearchProvider.js";
@@ -101,7 +102,8 @@ describe("ProactiveActuator", () => {
       memoryManager: memory,
       searchProvider: search,
       webPageFetcher: fetcher,
-      searchTopK: 2
+      searchTopK: 2,
+      i18n: createI18n({ locale: "zh-CN" })
     });
 
     const text = await actuator.execute({

@@ -1,9 +1,11 @@
+import type { I18n } from "../i18n/index.js";
 import type { Context, ProactivePlan } from "../types.js";
 
 export interface ProactiveDialoguePlannerConfig {
   proactiveWakeupRequireEvidence: boolean;
   proactiveWakeupMinIntervalSeconds: number;
   proactiveWakeupMaxPerHour: number;
+  i18n?: I18n;
 }
 
 export class ProactiveDialoguePlanner {
@@ -52,7 +54,7 @@ export class ProactiveDialoguePlanner {
 
     const searchQueries = shouldSearchEvidence ? [input.userInput] : [];
     const topIntent = signal.intents[0];
-    const label = topIntent?.label ?? "当前任务";
+    const label = topIntent?.label ?? this.config.i18n?.t("proactive.intent.default_label") ?? "current task";
 
     this.lastWakeupTimestampMs = now;
     this.wakeupTimestamps.push(now);
@@ -62,7 +64,9 @@ export class ProactiveDialoguePlanner {
         action: "ask_followup",
         shouldSearchEvidence,
         searchQueries,
-        messageSeed: `我建议先推进「${label}」。要不要我直接给你下一步最小执行清单？`,
+        messageSeed:
+          this.config.i18n?.t("proactive.message.suggest", { label }) ??
+          `I suggest prioritizing "${label}". Do you want me to give you the smallest next-step checklist now?`,
         reason: signal.reason
       };
     }
@@ -71,7 +75,9 @@ export class ProactiveDialoguePlanner {
       action: "nudge_user",
       shouldSearchEvidence,
       searchQueries,
-      messageSeed: `我可以继续跟进「${label}」，如果你愿意我现在就给出下一步。`,
+      messageSeed:
+        this.config.i18n?.t("proactive.message.followup", { label }) ??
+        `I can continue on "${label}" and provide the next step now if you want.`,
       reason: signal.reason
     };
   }

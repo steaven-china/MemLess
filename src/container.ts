@@ -5,6 +5,9 @@ import type { AppConfig, DeepPartial } from "./config.js";
 import { loadConfig } from "./config.js";
 import type { IDebugTraceRecorder } from "./debug/DebugTraceRecorder.js";
 import { InMemoryDebugTraceRecorder, NoopDebugTraceRecorder } from "./debug/DebugTraceRecorder.js";
+import { createI18n } from "./i18n/index.js";
+import type { I18n } from "./i18n/index.js";
+import type { Locale } from "./i18n/types.js";
 import { InvertedIndex } from "./memory/InvertedIndex.js";
 import { PartitionMemoryManager } from "./memory/PartitionMemoryManager.js";
 import { RelationGraph } from "./memory/RelationGraph.js";
@@ -121,6 +124,8 @@ export function createRuntime(
   };
 
   container.register("config", () => config);
+  container.register("locale", () => config.component.locale as Locale);
+  container.register("i18n", () => createI18n({ locale: config.component.locale }));
   container.register("debugTraceRecorder", () => {
     if (!config.component.debugTraceEnabled) {
       return new NoopDebugTraceRecorder();
@@ -251,7 +256,13 @@ export function createRuntime(
       predictor: container.resolve("predictor")
     });
   });
-  container.register("provider", () => buildProvider(config, container.resolve("debugTraceRecorder")));
+  container.register("provider", () =>
+    buildProvider(
+      config,
+      container.resolve("debugTraceRecorder"),
+      container.resolve<I18n>("i18n")
+    )
+  );
   container.register("searchProvider", () => {
     return new HttpSearchProvider({
       endpoint: config.component.searchEndpoint,
@@ -295,7 +306,8 @@ export function createRuntime(
     return new ProactiveDialoguePlanner({
       proactiveWakeupRequireEvidence: config.manager.proactiveWakeupRequireEvidence,
       proactiveWakeupMinIntervalSeconds: Math.max(0, config.manager.proactiveWakeupMinIntervalSeconds),
-      proactiveWakeupMaxPerHour: Math.max(1, config.manager.proactiveWakeupMaxPerHour)
+      proactiveWakeupMaxPerHour: Math.max(1, config.manager.proactiveWakeupMaxPerHour),
+      i18n: container.resolve("i18n")
     });
   });
   container.register("proactiveActuator", () => {
@@ -303,7 +315,8 @@ export function createRuntime(
       memoryManager: container.resolve("memoryManager"),
       searchProvider: container.resolve("searchProvider"),
       webPageFetcher: container.resolve("webPageFetcher"),
-      searchTopK: Math.max(1, config.manager.searchTopK)
+      searchTopK: Math.max(1, config.manager.searchTopK),
+      i18n: container.resolve("i18n")
     });
   });
   container.register("toolExecutor", () => {
@@ -316,7 +329,8 @@ export function createRuntime(
       searchProvider: container.resolve("searchProvider"),
       webPageFetcher: container.resolve("webPageFetcher"),
       searchAugmentMode: config.manager.searchAugmentMode,
-      searchTopK: config.manager.searchTopK
+      searchTopK: config.manager.searchTopK,
+      i18n: container.resolve("i18n")
     });
   });
   container.register("agent", () => {
@@ -336,7 +350,8 @@ export function createRuntime(
       proactiveActuator:
         config.manager.searchAugmentMode === "predictive" && config.manager.proactiveWakeupEnabled
           ? container.resolve("proactiveActuator")
-          : undefined
+          : undefined,
+      i18n: container.resolve("i18n")
     });
   });
   container.register("proactiveTimerScheduler", () => {

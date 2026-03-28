@@ -1,3 +1,4 @@
+import type { I18n } from "../i18n/index.js";
 import type {
   ChatMessage,
   ILLMProvider,
@@ -14,7 +15,9 @@ export interface ChatCompletionProviderConfig {
 export interface ChatCompletionProviderOptions {
   defaultBaseUrl: string;
   providerName: string;
+  i18n?: I18n;
   emptyResponseMessage?: string;
+  retryPrompt?: string;
   onTrace?: ChatCompletionTraceCallback;
 }
 
@@ -54,6 +57,7 @@ interface ChatCompletionMessage {
 export class ChatCompletionProvider implements ILLMProvider {
   private readonly baseUrl: string;
   private readonly emptyResponseMessage: string;
+  private readonly retryPrompt: string;
   private readonly assistantReasoningByContent = new Map<string, string>();
 
   constructor(
@@ -61,7 +65,12 @@ export class ChatCompletionProvider implements ILLMProvider {
     private readonly options: ChatCompletionProviderOptions
   ) {
     this.baseUrl = config.baseUrl ?? options.defaultBaseUrl;
-    this.emptyResponseMessage = options.emptyResponseMessage ?? "模型没有返回可用文本。";
+    this.emptyResponseMessage =
+      options.emptyResponseMessage ?? options.i18n?.t("chat.empty_response") ?? "Model returned no usable text.";
+    this.retryPrompt =
+      options.retryPrompt ??
+      options.i18n?.t("chat.retry_prompt") ??
+      "Please provide a non-empty plain text answer to my previous request.";
   }
 
   async generate(messages: ChatMessage[], options?: LlmGenerateOptions): Promise<string> {
@@ -205,7 +214,7 @@ export class ChatCompletionProvider implements ILLMProvider {
       ...messages,
       {
         role: "user",
-        content: "Please provide a non-empty plain text answer to my previous request."
+        content: this.retryPrompt
       }
     ];
     try {

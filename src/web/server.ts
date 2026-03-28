@@ -5,6 +5,7 @@ import type { AppConfig, DeepPartial } from "../config.js";
 import { createRuntime } from "../container.js";
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
 import { ReadonlyFileService } from "../files/ReadonlyFileService.js";
+import { createI18n, extractLocaleFromAcceptLanguage, pickLocale, type I18n } from "../i18n/index.js";
 import type { Context } from "../types.js";
 import type { IRawEventStore } from "../memory/raw/IRawEventStore.js";
 import type { IRelationStore } from "../memory/relation/IRelationStore.js";
@@ -46,14 +47,15 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   const requestedPort = options.port ?? 8787;
 
   const server = createServer(async (req, res) => {
+    const i18n = resolveRequestI18n(req, runtime.config.component.locale);
     try {
-      await routeRequest(req, res, runtime, debugState, fileService);
+      await routeRequest(req, res, runtime, debugState, fileService, i18n);
     } catch (error) {
       if (error instanceof HttpError) {
         sendJson(res, error.statusCode, { error: error.message });
         return;
       }
-      sendJson(res, 500, { error: "Unexpected server error." });
+      sendJson(res, 500, { error: i18n.t("core.error.unexpected_server_error") });
     }
   });
 
@@ -78,7 +80,8 @@ async function routeRequest(
   res: ServerResponse,
   runtime: ReturnType<typeof createRuntime>,
   debugState: DebugState,
-  fileService: ReadonlyFileService
+  fileService: ReadonlyFileService,
+  i18n: I18n
 ): Promise<void> {
   const bodyLimit = resolveBodyLimit(runtime.config.component.webRequestBodyMaxBytes);
   const adminToken = normalizeAdminToken(runtime.config.component.webAdminToken);
@@ -90,7 +93,7 @@ async function routeRequest(
   const pathname = url.pathname;
 
   if (method === "GET" && pathname === "/") {
-    sendHtml(res, renderAppHtml());
+    sendHtml(res, renderAppHtml(i18n));
     return;
   }
 
@@ -112,10 +115,10 @@ async function routeRequest(
   }
 
   if (method === "POST" && pathname === "/api/chat") {
-    const body = await readJson<ChatRequestBody>(req, bodyLimit);
+    const body = await readJson<ChatRequestBody>(req, i18n, bodyLimit);
     const message = normalizeUserMessage(body.message);
     if (!message) {
-      sendJson(res, 400, { error: "message is required." });
+      sendJson(res, 400, { error: i18n.t("web.api.error.message_required") });
       return;
     }
     const result = await runtime.agent.respond(message);
@@ -139,10 +142,10 @@ async function routeRequest(
   }
 
   if (method === "POST" && pathname === "/api/chat/stream") {
-    const body = await readJson<ChatRequestBody>(req, bodyLimit);
+    const body = await readJson<ChatRequestBody>(req, i18n, bodyLimit);
     const message = normalizeUserMessage(body.message);
     if (!message) {
-      sendJson(res, 400, { error: "message is required." });
+      sendJson(res, 400, { error: i18n.t("web.api.error.message_required") });
       return;
     }
 
@@ -175,7 +178,7 @@ async function routeRequest(
       res.end();
     } catch (error) {
       sendSseEvent(res, "error", {
-        error: error instanceof Error ? error.message : "stream error"
+        error: error instanceof Error ? error.message : i18n.t("web.error.stream_unknown")
       });
       res.end();
     }
@@ -189,16 +192,16 @@ async function routeRequest(
   }
 
   if (method === "GET" && pathname === "/api/debug/database") {
-    requireFeatureEnabled(debugApiEnabled);
-    requireAdminAuthorization(req, adminToken);
+    requireFeatureEnabled(debugApiEnabled, i18n);
+    requireAdminAuthorization(req, adminToken, i18n);
     const snapshot = await buildDebugDatabaseSnapshot(runtime, debugState.lastContext);
     sendJson(res, 200, snapshot);
     return;
   }
 
   if (method === "GET" && pathname === "/api/debug/traces") {
-    requireFeatureEnabled(debugApiEnabled);
-    requireAdminAuthorization(req, adminToken);
+    requireFeatureEnabled(debugApiEnabled, i18n);
+    requireAdminAuthorization(req, adminToken, i18n);
     const traceRecorder = runtime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
     const limit = parsePositiveInt(url.searchParams.get("limit"), 500);
     sendJson(res, 200, {
@@ -209,8 +212,8 @@ async function routeRequest(
   }
 
   if (method === "POST" && pathname === "/api/debug/traces/clear") {
-    requireFeatureEnabled(debugApiEnabled);
-    requireAdminAuthorization(req, adminToken);
+    requireFeatureEnabled(debugApiEnabled, i18n);
+    requireAdminAuthorization(req, adminToken, i18n);
     const traceRecorder = runtime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
     traceRecorder.clear();
     sendJson(res, 200, { ok: true });
@@ -218,16 +221,16 @@ async function routeRequest(
   }
 
   if (method === "GET" && pathname === "/api/debug/block") {
-    requireFeatureEnabled(debugApiEnabled);
-    requireAdminAuthorization(req, adminToken);
+    requireFeatureEnabled(debugApiEnabled, i18n);
+    requireAdminAuthorization(req, adminToken, i18n);
     const blockId = url.searchParams.get("id")?.trim();
     if (!blockId) {
-      sendJson(res, 400, { error: "id is required." });
+      sendJson(res, 400, { error: i18n.t("web.api.error.id_required") });
       return;
     }
     const detail = await buildDebugBlockDetail(runtime, blockId);
     if (!detail) {
-      sendJson(res, 404, { error: "block not found." });
+      sendJson(res, 404, { error: i18n.t("web.api.error.block_not_found") });
       return;
     }
     sendJson(res, 200, detail);
@@ -235,8 +238,8 @@ async function routeRequest(
   }
 
   if (method === "GET" && pathname === "/api/files/list") {
-    requireFeatureEnabled(fileApiEnabled);
-    requireAdminAuthorization(req, adminToken);
+    requireFeatureEnabled(fileApiEnabled, i18n);
+    requireAdminAuthorization(req, adminToken, i18n);
     const pathInput = url.searchParams.get("path") ?? ".";
     const maxEntries = parsePositiveInt(url.searchParams.get("maxEntries"), 200);
     try {
@@ -250,11 +253,11 @@ async function routeRequest(
   }
 
   if (method === "GET" && pathname === "/api/files/read") {
-    requireFeatureEnabled(fileApiEnabled);
-    requireAdminAuthorization(req, adminToken);
+    requireFeatureEnabled(fileApiEnabled, i18n);
+    requireAdminAuthorization(req, adminToken, i18n);
     const pathInput = url.searchParams.get("path")?.trim();
     if (!pathInput) {
-      sendJson(res, 400, { error: "path is required." });
+      sendJson(res, 400, { error: i18n.t("web.api.error.path_required") });
       return;
     }
     const maxBytes = parsePositiveInt(url.searchParams.get("maxBytes"), 64 * 1024);
@@ -268,7 +271,7 @@ async function routeRequest(
     return;
   }
 
-  sendJson(res, 404, { error: "Not found" });
+  sendJson(res, 404, { error: i18n.t("web.api.error.not_found") });
 }
 
 async function buildDebugDatabaseSnapshot(
@@ -454,7 +457,7 @@ function parsePositiveInt(raw: string | null, fallback: number): number {
   return parsed;
 }
 
-async function readJson<T>(req: IncomingMessage, maxBytes = 256 * 1024): Promise<T> {
+async function readJson<T>(req: IncomingMessage, i18n: I18n, maxBytes = 256 * 1024): Promise<T> {
   const byteLimit = resolveBodyLimit(maxBytes);
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -462,7 +465,7 @@ async function readJson<T>(req: IncomingMessage, maxBytes = 256 * 1024): Promise
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     totalBytes += buf.byteLength;
     if (totalBytes > byteLimit) {
-      throw new HttpError(413, `request body too large (max ${byteLimit} bytes)`);
+      throw new HttpError(413, i18n.t("web.api.error.request_too_large", { size: totalBytes, max: byteLimit }));
     }
     chunks.push(buf);
   }
@@ -476,7 +479,7 @@ async function readJson<T>(req: IncomingMessage, maxBytes = 256 * 1024): Promise
   try {
     return JSON.parse(raw) as T;
   } catch {
-    throw new HttpError(400, "invalid JSON payload");
+    throw new HttpError(400, i18n.t("web.api.error.invalid_json"));
   }
 }
 
@@ -540,9 +543,9 @@ class HttpError extends Error {
   }
 }
 
-function requireFeatureEnabled(enabled: boolean): void {
+function requireFeatureEnabled(enabled: boolean, i18n: I18n): void {
   if (enabled) return;
-  throw new HttpError(404, "Not found");
+  throw new HttpError(404, i18n.t("web.api.error.not_found"));
 }
 
 function normalizeAdminToken(token: string | undefined): string | undefined {
@@ -551,11 +554,11 @@ function normalizeAdminToken(token: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function requireAdminAuthorization(req: IncomingMessage, adminToken: string | undefined): void {
+function requireAdminAuthorization(req: IncomingMessage, adminToken: string | undefined, i18n: I18n): void {
   if (!adminToken) return;
   const provided = extractAdminToken(req);
   if (provided === adminToken) return;
-  throw new HttpError(401, "Unauthorized");
+  throw new HttpError(401, i18n.t("web.api.error.unauthorized"));
 }
 
 function extractAdminToken(req: IncomingMessage): string | undefined {
@@ -575,6 +578,18 @@ function readHeaderValue(value: string | string[] | undefined): string | undefin
   if (!Array.isArray(value)) return undefined;
   const joined = value.find((item) => item.trim().length > 0);
   return joined?.trim();
+}
+
+function resolveRequestI18n(req: IncomingMessage, fallbackLocale: string): I18n {
+  const locale = pickLocale(
+    [
+      readHeaderValue(req.headers["x-mlex-locale"]),
+      extractLocaleFromAcceptLanguage(readHeaderValue(req.headers["accept-language"])),
+      fallbackLocale
+    ],
+    "zh-CN"
+  );
+  return createI18n({ locale });
 }
 
 function resolveBodyLimit(rawLimit: number): number {

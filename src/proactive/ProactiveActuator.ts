@@ -1,3 +1,4 @@
+import type { I18n } from "../i18n/index.js";
 import type { IMemoryManager } from "../memory/IMemoryManager.js";
 import type { ISearchProvider } from "../search/ISearchProvider.js";
 import type { IWebPageFetcher } from "../search/IWebPageFetcher.js";
@@ -9,6 +10,7 @@ export interface ProactiveActuatorConfig {
   searchProvider?: ISearchProvider;
   webPageFetcher?: IWebPageFetcher;
   searchTopK: number;
+  i18n?: I18n;
 }
 
 export class ProactiveActuator {
@@ -70,7 +72,9 @@ export class ProactiveActuator {
           }
         }
 
-        evidenceSummary = `（补充外部证据 ${records.length} 条）`;
+        evidenceSummary =
+          this.config.i18n?.t("proactive.evidence_suffix", { count: records.length }) ??
+          ` (added ${records.length} external evidence item(s))`;
       }
     }
 

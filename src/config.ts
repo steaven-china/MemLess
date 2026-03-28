@@ -17,6 +17,7 @@ export interface ServiceConfig {
 }
 
 export interface ComponentConfig {
+  locale: "zh-CN" | "en-US";
   chunkStrategy: "fixed" | "semantic" | "hybrid";
   storageBackend: "memory" | "sqlite" | "lance" | "chroma";
   sqliteFilePath: string;
@@ -230,6 +231,10 @@ export function loadConfig(
   };
 
   const component: ComponentConfig = {
+    locale:
+      ((process.env.MLEX_LOCALE as ComponentConfig["locale"] | undefined) ?? "zh-CN") === "en-US"
+        ? "en-US"
+        : "zh-CN",
     chunkStrategy: (process.env.MLEX_CHUNK_STRATEGY as ComponentConfig["chunkStrategy"]) ?? "hybrid",
     storageBackend:
       (process.env.MLEX_STORAGE_BACKEND as ComponentConfig["storageBackend"]) ??
@@ -289,6 +294,7 @@ function validateConfig(config: AppConfig): AppConfig {
     "openai",
     "deepseek-reasoner"
   ]);
+  validateEnum("component.locale", config.component.locale, ["zh-CN", "en-US"]);
   validateEnum("component.chunkStrategy", config.component.chunkStrategy, ["fixed", "semantic", "hybrid"]);
   validateEnum("component.storageBackend", config.component.storageBackend, [
     "memory",

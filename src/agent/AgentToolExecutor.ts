@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
+import type { I18n } from "../i18n/index.js";
 import { ReadonlyFileService } from "../files/ReadonlyFileService.js";
 import type { IFileAccessRecorder } from "../memory/file/FileAccessRecorder.js";
 import type { IMemoryManager } from "../memory/IMemoryManager.js";
@@ -44,6 +45,7 @@ export interface BuiltinAgentToolExecutorConfig {
     }) => Promise<void> | void;
   };
   fileAccessRecorder?: IFileAccessRecorder;
+  i18n?: I18n;
 }
 
 export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
@@ -56,19 +58,30 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
 
   instructions(): string {
     return [
-      "You can call tools when needed.",
-      "If a tool is needed, output ONLY one tag: <tool_call>{\"name\":\"...\",\"args\":{...}}</tool_call>.",
-      "When information is incomplete, prefer calling history.query before answering.",
-      "Supported tools:",
-      "- readonly.list args: {\"path\":\".\",\"maxEntries\":200}",
-      "- readonly.read args: {\"path\":\"README.md\",\"maxBytes\":65536}",
-      "- history.query args: {\"query\":\"payment webhook\",\"mode\":\"hybrid\",\"topBlocks\":5,\"limit\":5,\"keywords\":[\"idempotency\"],\"includeRaw\":true,\"includeRecent\":true,\"includePrediction\":true,\"maxFormattedChars\":16384}",
-      "- web.search.record args: {\"query\":\"latest payment retry best practices\",\"limit\":5,\"includeSnippets\":true}",
-      "- web.fetch.record args: {\"url\":\"https://example.com/doc\",\"maxChars\":12000}",
-      "- test.run args: {\"script\":\"typecheck|test|build|verify:arch\"}",
-      "After a tool call, you will receive TOOL_RESULT JSON in a user message.",
-      "You may call tools again in later rounds if needed, but only one tool_call per round.",
-      "When no more tools are needed, return normal final answer text."
+      this.config.i18n?.t("tool.instruction.header") ?? "You can call tools when needed.",
+      this.config.i18n?.t("tool.instruction.only_one_tag") ??
+        "If a tool is needed, output ONLY one tag: <tool_call>{\"name\":\"...\",\"args\":{...}}</tool_call>.",
+      this.config.i18n?.t("tool.instruction.history_first") ??
+        "When information is incomplete, prefer calling history.query before answering.",
+      this.config.i18n?.t("tool.instruction.supported") ?? "Supported tools:",
+      this.config.i18n?.t("tool.instruction.readonly_list") ??
+        "- readonly.list args: {\"path\":\".\",\"maxEntries\":200}",
+      this.config.i18n?.t("tool.instruction.readonly_read") ??
+        "- readonly.read args: {\"path\":\"README.md\",\"maxBytes\":65536}",
+      this.config.i18n?.t("tool.instruction.history_query") ??
+        "- history.query args: {\"query\":\"payment webhook\",\"mode\":\"hybrid\",\"topBlocks\":5,\"limit\":5,\"keywords\":[\"idempotency\"],\"includeRaw\":true,\"includeRecent\":true,\"includePrediction\":true,\"maxFormattedChars\":16384}",
+      this.config.i18n?.t("tool.instruction.web_search") ??
+        "- web.search.record args: {\"query\":\"latest payment retry best practices\",\"limit\":5,\"includeSnippets\":true}",
+      this.config.i18n?.t("tool.instruction.web_fetch") ??
+        "- web.fetch.record args: {\"url\":\"https://example.com/doc\",\"maxChars\":12000}",
+      this.config.i18n?.t("tool.instruction.test_run") ??
+        "- test.run args: {\"script\":\"typecheck|test|build|verify:arch\"}",
+      this.config.i18n?.t("tool.instruction.tool_result") ??
+        "After a tool call, you will receive TOOL_RESULT JSON in a user message.",
+      this.config.i18n?.t("tool.instruction.multi_round") ??
+        "You may call tools again in later rounds if needed, but only one tool_call per round.",
+      this.config.i18n?.t("tool.instruction.final") ??
+        "When no more tools are needed, return normal final answer text."
     ].join("\n");
   }
 
@@ -93,7 +106,12 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     if (call.name === "readonly.read") {
       const pathInput = asString(call.args.path);
       if (!pathInput) {
-        const result = { ok: false, content: "readonly.read requires args.path" };
+        const result = {
+          ok: false,
+          content:
+            this.config.i18n?.t("tool.error.readonly_read_requires_path") ??
+            "readonly.read requires args.path"
+        };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
       }
@@ -112,7 +130,9 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       if (this.testRunInFlight) {
         const result = {
           ok: false,
-          content: "test.run is already running. Please wait for current run to finish."
+          content:
+            this.config.i18n?.t("tool.error.test_run_in_flight") ??
+            "test.run is already running. Please wait for current run to finish."
         };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
@@ -123,7 +143,9 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       if (!allowedScripts.has(script)) {
         const result = {
           ok: false,
-          content: `test.run script not allowed: ${script}`
+          content:
+            this.config.i18n?.t("tool.error.test_run_script_not_allowed", { script }) ??
+            `test.run script not allowed: ${script}`
         };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
@@ -179,7 +201,12 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     if (call.name === "history.query") {
       const query = asString(call.args.query);
       if (!query) {
-        const result = { ok: false, content: "history.query requires args.query" };
+        const result = {
+          ok: false,
+          content:
+            this.config.i18n?.t("tool.error.history_query_requires_query") ??
+            "history.query requires args.query"
+        };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
       }
@@ -254,7 +281,12 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     if (call.name === "web.search.record") {
       const query = asString(call.args.query);
       if (!query) {
-        const result = { ok: false, content: "web.search.record requires args.query" };
+        const result = {
+          ok: false,
+          content:
+            this.config.i18n?.t("tool.error.web_search_requires_query") ??
+            "web.search.record requires args.query"
+        };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
       }
@@ -292,12 +324,20 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     if (call.name === "web.fetch.record") {
       const url = asString(call.args.url);
       if (!url) {
-        const result = { ok: false, content: "web.fetch.record requires args.url" };
+        const result = {
+          ok: false,
+          content:
+            this.config.i18n?.t("tool.error.web_fetch_requires_url") ?? "web.fetch.record requires args.url"
+        };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
       }
       if (!this.config.webPageFetcher) {
-        const result = { ok: false, content: "web.fetch.record is not configured" };
+        const result = {
+          ok: false,
+          content:
+            this.config.i18n?.t("tool.error.web_fetch_not_configured") ?? "web.fetch.record is not configured"
+        };
         this.config.traceRecorder?.record("tool", "execute.result", { call, result });
         return result;
       }
@@ -309,7 +349,13 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
         await this.config.memoryManager.addEvent({
           id: createId("event"),
           role: "tool",
-          text: `web fetch\nurl: ${page.url}\ntitle: ${page.title ?? ""}\n${content}`.trim(),
+          text:
+            this.config.i18n?.t("tool.event.web_fetch", {
+              url: page.url,
+              title: page.title ?? "",
+              content
+            }) ??
+            `web fetch\nurl: ${page.url}\ntitle: ${page.title ?? ""}\n${content}`.trim(),
           timestamp: Date.now(),
           metadata: {
             tool: "web.fetch.record",
@@ -344,7 +390,8 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
 
     const result = {
       ok: false,
-      content: `unknown tool: ${call.name}`
+      content:
+        this.config.i18n?.t("tool.error.unknown_tool", { name: call.name }) ?? `unknown tool: ${call.name}`
     };
     this.config.traceRecorder?.record("tool", "execute.result", { call, result });
     return result;
@@ -355,7 +402,9 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       return {
         records: [],
         status: "not_configured",
-        error: "search provider is not configured"
+        error:
+          this.config.i18n?.t("tool.error.search_provider_not_configured") ??
+          "search provider is not configured"
       };
     }
 
@@ -369,7 +418,7 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     await this.config.memoryManager.addEvent({
       id: createId("event"),
       role: "tool",
-      text: `web search: ${query}\n${summary}`,
+      text: this.config.i18n?.t("tool.event.web_search", { query, summary }) ?? `web search: ${query}\n${summary}`,
       timestamp: Date.now(),
       metadata: {
         tool: "web.search.record",
@@ -395,7 +444,14 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     await this.config.memoryManager.addEvent({
       id: createId("event"),
       role: "tool",
-      text: `readonly list\ncwd: ${this.config.workspaceRoot}\npath: ${pathInput}\ncount: ${entries.length}${summary ? `\n${summary}` : ""}`,
+      text:
+        this.config.i18n?.t("tool.event.readonly_list", {
+          cwd: this.config.workspaceRoot,
+          path: pathInput,
+          count: entries.length,
+          summary: summary ? `\n${summary}` : ""
+        }) ??
+        `readonly list\ncwd: ${this.config.workspaceRoot}\npath: ${pathInput}\ncount: ${entries.length}${summary ? `\n${summary}` : ""}`,
       timestamp: Date.now(),
       metadata: {
         tool: "readonly.list",
@@ -469,7 +525,15 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
     await this.config.memoryManager.addEvent({
       id: createId("event"),
       role: "tool",
-      text: `readonly read\ncwd: ${this.config.workspaceRoot}\npath: ${result.path}\nbytes: ${result.bytes}/${result.totalBytes}\ntruncated: ${result.truncated}`,
+      text:
+        this.config.i18n?.t("tool.event.readonly_read", {
+          cwd: this.config.workspaceRoot,
+          path: result.path,
+          bytes: result.bytes,
+          totalBytes: result.totalBytes,
+          truncated: result.truncated
+        }) ??
+        `readonly read\ncwd: ${this.config.workspaceRoot}\npath: ${result.path}\nbytes: ${result.bytes}/${result.totalBytes}\ntruncated: ${result.truncated}`,
       timestamp: now,
       metadata: {
         tool: "readonly.read",

@@ -1,10 +1,13 @@
-export function renderAppHtml(): string {
+import type { I18n } from "../i18n/index.js";
+
+export function renderAppHtml(i18n: I18n): string {
+  const escapedMessages = JSON.stringify(i18n.messages).replace(/</g, "\\u003c");
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${i18n.locale}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MLEX Web</title>
+  <title>${i18n.t("web.title.app")}</title>
   <style>
     :root {
       --bg: #f7f7f8;
@@ -109,71 +112,71 @@ export function renderAppHtml(): string {
 <body>
   <main class="shell">
     <section class="card header">
-      <div class="title">MLEX Minimal Web</div>
-      <div class="status" id="status" data-live="1">ready</div>
+      <div class="title">${i18n.t("web.title.minimal")}</div>
+      <div class="status" id="status" data-live="1">${i18n.t("web.status.ready")}</div>
     </section>
     <div class="layout">
       <section class="card chat-panel">
         <div class="messages" id="messages"></div>
         <form class="composer" id="composer">
-          <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+          <textarea id="input" placeholder="${i18n.t("web.input.placeholder")}"></textarea>
           <div class="actions">
-            <button type="button" id="debugBtn">Debug</button>
-            <button type="button" id="sealBtn">Seal</button>
-            <button type="submit" class="primary" id="sendBtn">Send</button>
+            <button type="button" id="debugBtn">${i18n.t("web.button.debug")}</button>
+            <button type="button" id="sealBtn">${i18n.t("web.button.seal")}</button>
+            <button type="submit" class="primary" id="sendBtn">${i18n.t("web.button.send")}</button>
           </div>
         </form>
-        <div class="hint">极简前端：默认流式输出，支持多行粘贴，支持 /trace [n] 与 /trace-clear。</div>
+        <div class="hint">${i18n.t("web.hint.main")}</div>
         <details class="raw-context">
-          <summary>原始上下文（最近一次）</summary>
-          <pre id="rawContextView">暂无上下文</pre>
+          <summary>${i18n.t("web.raw_context.summary")}</summary>
+          <pre id="rawContextView">${i18n.t("web.raw_context.empty")}</pre>
         </details>
       </section>
       <section class="card debug" id="debugPanel" hidden>
         <div class="debug-head">
-          <span>数据库调试可视化（右侧）</span>
-          <button type="button" id="refreshDebugBtn">刷新</button>
+          <span>${i18n.t("web.debug.title")}</span>
+          <button type="button" id="refreshDebugBtn">${i18n.t("web.debug.refresh")}</button>
         </div>
         <div class="debug-scroll">
-          <div class="storage-line" id="storageLine">未加载存储信息</div>
+          <div class="storage-line" id="storageLine">${i18n.t("web.debug.storage_unloaded")}</div>
           <div class="metric-grid">
-            <div class="metric"><div class="metric-label">Blocks</div><div class="metric-value" id="metricBlocks">0</div></div>
-            <div class="metric"><div class="metric-label">Raw Buckets</div><div class="metric-value" id="metricRawBuckets">0</div></div>
-            <div class="metric"><div class="metric-label">Raw Events</div><div class="metric-value" id="metricRawEvents">0</div></div>
-            <div class="metric"><div class="metric-label">Relations</div><div class="metric-value" id="metricRelations">0</div></div>
+            <div class="metric"><div class="metric-label">${i18n.t("web.metric.blocks")}</div><div class="metric-value" id="metricBlocks">0</div></div>
+            <div class="metric"><div class="metric-label">${i18n.t("web.metric.raw_buckets")}</div><div class="metric-value" id="metricRawBuckets">0</div></div>
+            <div class="metric"><div class="metric-label">${i18n.t("web.metric.raw_events")}</div><div class="metric-value" id="metricRawEvents">0</div></div>
+            <div class="metric"><div class="metric-label">${i18n.t("web.metric.relations")}</div><div class="metric-value" id="metricRelations">0</div></div>
           </div>
           <div class="retention">
-            <div class="retention-title">Retention 分布</div>
+            <div class="retention-title">${i18n.t("web.debug.retention_distribution")}</div>
             <div class="retention-bar">
               <span class="bar-raw" id="barRaw" style="width:0%"></span>
               <span class="bar-compressed" id="barCompressed" style="width:0%"></span>
               <span class="bar-conflict" id="barConflict" style="width:0%"></span>
             </div>
-            <div class="retention-text" id="retentionText">raw 0 / compressed 0 / conflict 0</div>
+            <div class="retention-text" id="retentionText">${i18n.t("web.retention.text", { raw: 0, compressed: 0, conflict: 0 })}</div>
           </div>
           <section class="section">
-            <div class="section-head"><span>当前上下文块</span><span id="contextMeta">0</span></div>
+            <div class="section-head"><span>${i18n.t("web.debug.context_blocks")}</span><span id="contextMeta">0</span></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>#</th><th>Block</th><th>Score</th><th>Source</th><th>Time</th><th>Raw</th></tr></thead>
+                <thead><tr><th>${i18n.t("web.table.index")}</th><th>${i18n.t("web.table.block")}</th><th>${i18n.t("web.table.score")}</th><th>${i18n.t("web.table.source")}</th><th>${i18n.t("web.table.time")}</th><th>${i18n.t("web.table.raw")}</th></tr></thead>
                 <tbody id="contextRows"></tbody>
               </table>
             </div>
           </section>
           <section class="section">
-            <div class="section-head"><span>数据库 Blocks</span><span id="blocksMeta">0</span></div>
+            <div class="section-head"><span>${i18n.t("web.debug.database_blocks")}</span><span id="blocksMeta">0</span></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>#</th><th>Block</th><th>Time</th><th>Tokens</th><th>Retention</th><th>Raw</th><th>Ctx</th></tr></thead>
+                <thead><tr><th>${i18n.t("web.table.index")}</th><th>${i18n.t("web.table.block")}</th><th>${i18n.t("web.table.time")}</th><th>${i18n.t("web.table.tokens")}</th><th>${i18n.t("web.table.retention")}</th><th>${i18n.t("web.table.raw")}</th><th>${i18n.t("web.table.context_short")}</th></tr></thead>
                 <tbody id="blockRows"></tbody>
               </table>
             </div>
           </section>
           <section class="section">
-            <div class="section-head"><span>数据库 Relations</span><span id="relationsMeta">0</span></div>
+            <div class="section-head"><span>${i18n.t("web.debug.database_relations")}</span><span id="relationsMeta">0</span></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>#</th><th>Type</th><th>Src</th><th>Dst</th><th>Time</th></tr></thead>
+                <thead><tr><th>${i18n.t("web.table.index")}</th><th>${i18n.t("web.table.type")}</th><th>${i18n.t("web.table.src")}</th><th>${i18n.t("web.table.dst")}</th><th>${i18n.t("web.table.time")}</th></tr></thead>
                 <tbody id="relationRows"></tbody>
               </table>
             </div>
@@ -185,13 +188,22 @@ export function renderAppHtml(): string {
   <div class="modal" id="detailModal" hidden>
     <div class="modal-card">
       <div class="modal-head">
-        <span class="modal-title" id="modalTitle">详情</span>
-        <button type="button" id="closeModalBtn">关闭</button>
+        <span class="modal-title" id="modalTitle">${i18n.t("web.modal.detail")}</span>
+        <button type="button" id="closeModalBtn">${i18n.t("web.modal.close")}</button>
       </div>
       <pre class="modal-content" id="modalContent"></pre>
     </div>
   </div>
   <script>
+    const MESSAGES = ${escapedMessages};
+    function t(key, params = {}) {
+      const template = Object.prototype.hasOwnProperty.call(MESSAGES, key) ? MESSAGES[key] : key;
+      return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (_, token) => {
+        const value = params[token];
+        return value == null ? "" : String(value);
+      });
+    }
+
     const messagesEl = document.getElementById("messages");
     const inputEl = document.getElementById("input");
     const composerEl = document.getElementById("composer");
@@ -229,7 +241,7 @@ export function renderAppHtml(): string {
     let debugCapabilitiesLoaded = false;
 
     renderDebugButtonState();
-    addBubble("assistant", "你好，我是 MLEX。你可以直接粘贴多行内容开始对话。");
+    addBubble("assistant", t("web.greeting"));
     void initializeCapabilities();
 
     composerEl.addEventListener("submit", async (event) => {
@@ -250,30 +262,30 @@ export function renderAppHtml(): string {
     });
 
     sealBtn.addEventListener("click", async () => {
-      setBusy(true, "sealing");
+      setBusy(true, t("web.status.sealing"));
       try {
         const response = await fetch("/api/seal", { method: "POST" });
-        if (!response.ok) throw new Error("seal failed");
-        addBubble("assistant", "已封存当前 active block。");
+        if (!response.ok) throw new Error(t("web.error.seal_failed"));
+        addBubble("assistant", t("web.message.sealed"));
         if (debugVisible) {
           await refreshDebug();
         }
       } catch (error) {
-        addBubble("assistant", "Seal 失败，请稍后重试。");
+        addBubble("assistant", t("web.error.seal_failed"));
       } finally {
-        setBusy(false, "ready");
+        setBusy(false, t("web.status.ready"));
       }
     });
 
     debugBtn.addEventListener("click", async () => {
       if (!debugApiEnabled) {
-        storageLine.textContent = "Debug API 未启用。请以 --web-debug-api true 启动服务。";
+        storageLine.textContent = t("web.error.debug_api_disabled");
         return;
       }
       if (debugAdminTokenRequired && !debugAdminToken) {
         const entered = promptAdminToken();
         if (!entered) {
-          storageLine.textContent = "Debug API 需要 admin token。";
+          storageLine.textContent = t("web.error.debug_token_required");
           return;
         }
       }
@@ -321,14 +333,14 @@ export function renderAppHtml(): string {
 
     async function handleTraceCommand(commandText, allowAuthRetry = true) {
       const limit = parseTraceLimit(commandText);
-      setBusy(true, "trace");
+      setBusy(true, t("web.status.trace"));
       try {
         const response = await fetch("/api/debug/traces?limit=" + String(limit), {
           headers: buildAdminHeaders()
         });
         if (response.status === 404) {
           disableDebugApi();
-          addBubble("assistant", "Trace API 未启用。请以 --web-debug-api true 启动服务。");
+          addBubble("assistant", t("web.error.trace_api_disabled"));
           return;
         }
         if (response.status === 401) {
@@ -339,21 +351,21 @@ export function renderAppHtml(): string {
               return;
             }
           }
-          addBubble("assistant", "Trace API 鉴权失败，请提供正确的 admin token。");
+          addBubble("assistant", t("web.error.trace_auth_failed"));
           return;
         }
-        if (!response.ok) throw new Error("trace failed");
+        if (!response.ok) throw new Error(t("web.error.trace_fetch_failed"));
         const payload = await response.json();
         addBubble("assistant", JSON.stringify(payload, null, 2));
       } catch {
-        addBubble("assistant", "Trace 获取失败，请稍后重试。");
+        addBubble("assistant", t("web.error.trace_fetch_failed"));
       } finally {
-        setBusy(false, "ready");
+        setBusy(false, t("web.status.ready"));
       }
     }
 
     async function handleTraceClearCommand(allowAuthRetry = true) {
-      setBusy(true, "trace");
+      setBusy(true, t("web.status.trace"));
       try {
         const response = await fetch("/api/debug/traces/clear", {
           method: "POST",
@@ -361,7 +373,7 @@ export function renderAppHtml(): string {
         });
         if (response.status === 404) {
           disableDebugApi();
-          addBubble("assistant", "Trace API 未启用。请以 --web-debug-api true 启动服务。");
+          addBubble("assistant", t("web.error.trace_api_disabled"));
           return;
         }
         if (response.status === 401) {
@@ -372,18 +384,18 @@ export function renderAppHtml(): string {
               return;
             }
           }
-          addBubble("assistant", "Trace API 鉴权失败，请提供正确的 admin token。");
+          addBubble("assistant", t("web.error.trace_auth_failed"));
           return;
         }
-        if (!response.ok) throw new Error("trace clear failed");
-        addBubble("assistant", "trace 已清空。");
+        if (!response.ok) throw new Error(t("web.error.trace_clear_failed"));
+        addBubble("assistant", t("web.message.trace_cleared"));
         if (debugVisible) {
           await refreshDebug();
         }
       } catch {
-        addBubble("assistant", "Trace 清空失败，请稍后重试。");
+        addBubble("assistant", t("web.error.trace_clear_failed"));
       } finally {
-        setBusy(false, "ready");
+        setBusy(false, t("web.status.ready"));
       }
     }
 
@@ -400,7 +412,7 @@ export function renderAppHtml(): string {
       addBubble("user", text);
       const assistantBubble = addBubble("assistant", "");
       assistantBubble.classList.add("streaming");
-      setBusy(true, "thinking");
+      setBusy(true, t("web.status.thinking"));
 
       try {
         const response = await fetch("/api/chat/stream", {
@@ -416,10 +428,10 @@ export function renderAppHtml(): string {
             body: JSON.stringify({ message: text })
           });
           if (!fallback.ok) {
-            throw new Error("fallback chat failed");
+            throw new Error(t("web.error.chat_fallback_failed"));
           }
           const data = await fallback.json();
-          const replyText = typeof data.reply === "string" ? data.reply : "请求失败";
+          const replyText = typeof data.reply === "string" ? data.reply : t("web.error.request_failed");
           const proactiveText = typeof data.proactiveReply === "string" ? data.proactiveReply : "";
           assistantBubble.textContent = proactiveText
             ? replyText + "\\n\\n" + proactiveText
@@ -467,7 +479,7 @@ export function renderAppHtml(): string {
               });
               await updateDebug();
             } else if (parsed.event === "error") {
-              assistantBubble.textContent = "[stream error] " + (parsed.data?.error ?? "unknown");
+              assistantBubble.textContent = "[" + t("web.error.stream_unknown") + "] " + (parsed.data?.error ?? t("web.error.stream_unknown"));
               assistantBubble.classList.remove("streaming");
             }
             messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -475,10 +487,10 @@ export function renderAppHtml(): string {
           }
         }
       } catch (error) {
-        assistantBubble.textContent = "请求失败，请检查服务状态。";
+        assistantBubble.textContent = t("web.error.stream_failed");
         assistantBubble.classList.remove("streaming");
       } finally {
-        setBusy(false, "ready");
+        setBusy(false, t("web.status.ready"));
       }
     }
 
@@ -527,7 +539,7 @@ export function renderAppHtml(): string {
 
     async function refreshDebug(allowAuthRetry = true) {
       if (!debugApiEnabled) {
-        storageLine.textContent = "Debug API 未启用。";
+        storageLine.textContent = t("web.error.debug_api_disabled_short");
         return;
       }
       try {
@@ -546,15 +558,15 @@ export function renderAppHtml(): string {
               return;
             }
           }
-          storageLine.textContent = "Debug API 鉴权失败，请提供正确的 admin token。";
+          storageLine.textContent = t("web.error.debug_auth_failed");
           return;
         }
-        if (!response.ok) throw new Error("debug fetch failed");
+        if (!response.ok) throw new Error(t("web.error.debug_fetch_failed"));
         const snapshot = await response.json();
         latestDebug = snapshot;
         renderDebug(snapshot);
       } catch {
-        storageLine.textContent = "调试数据加载失败，请稍后重试。";
+        storageLine.textContent = t("web.error.debug_fetch_failed");
       }
     }
 
@@ -578,15 +590,15 @@ export function renderAppHtml(): string {
       barCompressed.style.width = ((compressedCount / totalBlocks) * 100).toFixed(2) + "%";
       barConflict.style.width = ((conflictCount / totalBlocks) * 100).toFixed(2) + "%";
       retentionText.textContent =
-        "raw " + rawCount + " / compressed " + compressedCount + " / conflict " + conflictCount;
+        t("web.retention.text", { raw: rawCount, compressed: compressedCount, conflict: conflictCount });
 
       const contextBlocks = Array.isArray(context?.blocks) ? context.blocks : [];
       const blocks = Array.isArray(snapshot.blocks) ? snapshot.blocks : [];
       const relations = Array.isArray(snapshot.relations) ? snapshot.relations : [];
 
       contextMeta.textContent = context
-        ? "query: " + (context.query ?? "-") + " · " + contextBlocks.length
-        : "0";
+        ? t("web.context.meta", { query: context.query ?? t("web.common.dash"), count: contextBlocks.length })
+        : t("web.context.meta_empty");
       blocksMeta.textContent = String(blocks.length);
       relationsMeta.textContent = String(relations.length);
 
@@ -598,7 +610,7 @@ export function renderAppHtml(): string {
     function renderContextRows(items) {
       contextRows.innerHTML = "";
       if (!Array.isArray(items) || items.length === 0) {
-        contextRows.appendChild(buildEmptyRow(6, "暂无上下文块"));
+        contextRows.appendChild(buildEmptyRow(6, t("web.error.no_context_blocks")));
         return;
       }
       for (const item of items) {
@@ -618,7 +630,7 @@ export function renderAppHtml(): string {
     function renderBlockRows(items) {
       blockRows.innerHTML = "";
       if (!Array.isArray(items) || items.length === 0) {
-        blockRows.appendChild(buildEmptyRow(7, "暂无数据库分块"));
+        blockRows.appendChild(buildEmptyRow(7, t("web.error.no_database_blocks")));
         return;
       }
       for (const item of items) {
@@ -631,7 +643,7 @@ export function renderAppHtml(): string {
         row.appendChild(buildCell(String(item.tokenCount ?? 0)));
         row.appendChild(buildCell(String(item.retentionMode ?? "-")));
         row.appendChild(buildCell(String(item.persistedRawEvents ?? 0)));
-        const inCtxCell = buildCell(item.inContext ? "Y" : "-");
+        const inCtxCell = buildCell(item.inContext ? t("web.table.in_context_yes") : t("web.common.dash"));
         if (item.inContext) inCtxCell.className = "context-yes";
         row.appendChild(inCtxCell);
         blockRows.appendChild(row);
@@ -641,7 +653,7 @@ export function renderAppHtml(): string {
     function renderRelationRows(items) {
       relationRows.innerHTML = "";
       if (!Array.isArray(items) || items.length === 0) {
-        relationRows.appendChild(buildEmptyRow(5, "暂无关系数据"));
+        relationRows.appendChild(buildEmptyRow(5, t("web.error.no_relations")));
         return;
       }
       for (let index = 0; index < items.length; index += 1) {
@@ -672,7 +684,7 @@ export function renderAppHtml(): string {
           headers: buildAdminHeaders()
         });
         if (response.status === 404) {
-          openModal("Block 详情", { id: blockId, error: "Debug API 未启用" });
+          openModal(t("web.modal.block_detail"), { id: blockId, error: t("web.error.debug_api_disabled_short") });
           return;
         }
         if (response.status === 401) {
@@ -683,17 +695,17 @@ export function renderAppHtml(): string {
               return;
             }
           } else {
-            openModal("Block 详情", { id: blockId, error: "鉴权失败" });
+            openModal(t("web.modal.block_detail"), { id: blockId, error: t("web.error.unauthorized") });
             return;
           }
-          openModal("Block 详情", { id: blockId, error: "鉴权失败" });
+          openModal(t("web.modal.block_detail"), { id: blockId, error: t("web.error.unauthorized") });
           return;
         }
-        if (!response.ok) throw new Error("detail failed");
+        if (!response.ok) throw new Error(t("web.error.load_failed"));
         const detail = await response.json();
-        openModal("Block 详情: " + shortId(blockId), detail);
+        openModal(t("web.modal.block_detail_with_id", { id: shortId(blockId) }), detail);
       } catch {
-        openModal("Block 详情", { id: blockId, error: "加载失败" });
+        openModal(t("web.modal.block_detail"), { id: blockId, error: t("web.error.load_failed") });
       }
     }
 
@@ -703,7 +715,7 @@ export function renderAppHtml(): string {
       const blockId = row.dataset.id;
       const item = (latestDebug.lastContext.blocks ?? []).find((candidate) => candidate.id === blockId);
       if (!item) return;
-      openModal("Context Block: " + shortId(blockId), item);
+      openModal(t("web.modal.context_block_with_id", { id: shortId(blockId) }), item);
     }
 
     function onRelationRowClick(event) {
@@ -713,7 +725,7 @@ export function renderAppHtml(): string {
       if (!Number.isFinite(index) || index < 0) return;
       const item = (latestDebug.relations ?? [])[index];
       if (!item) return;
-      openModal("Relation 详情", item);
+      openModal(t("web.modal.relation_detail"), item);
     }
 
     function openModal(title, payload) {
@@ -745,18 +757,18 @@ export function renderAppHtml(): string {
     function shortId(value) {
       const text = String(value ?? "");
       if (text.length <= 12) return text;
-      return text.slice(0, 8) + "..." + text.slice(-4);
+      return t("web.id.ellipsis", { head: text.slice(0, 8), tail: text.slice(-4) });
     }
 
     function fmtNum(value, digits) {
       const number = Number(value ?? 0);
-      if (!Number.isFinite(number)) return "0";
+      if (!Number.isFinite(number)) return t("web.number.zero");
       return number.toFixed(digits);
     }
 
     function fmtTime(value) {
       const number = Number(value ?? 0);
-      if (!Number.isFinite(number) || number <= 0) return "-";
+      if (!Number.isFinite(number) || number <= 0) return t("web.common.dash");
       try {
         return new Date(number).toLocaleString();
       } catch {
@@ -767,32 +779,36 @@ export function renderAppHtml(): string {
     function fmtTimeRange(start, end) {
       const left = fmtTime(start);
       const right = fmtTime(end);
-      if (left === "-" && right === "-") return "-";
+      if (left === t("web.common.dash") && right === t("web.common.dash")) return t("web.common.dash");
       if (left === right) return left;
-      return left + " → " + right;
+      return t("web.list.arrow", { left, right });
     }
 
     function formatStorage(storage) {
       const parts = [];
-      parts.push("storage=" + String(storage.storageBackend ?? "-"));
-      parts.push("raw=" + String(storage.rawStoreBackend ?? "-"));
-      parts.push("relation=" + String(storage.relationStoreBackend ?? "-"));
-      if (storage.sqliteFilePath) parts.push("sqlite=" + storage.sqliteFilePath);
+      parts.push(t("web.storage.backend", { value: String(storage.storageBackend ?? t("web.common.dash")) }));
+      parts.push(t("web.storage.raw", { value: String(storage.rawStoreBackend ?? t("web.common.dash")) }));
+      parts.push(
+        t("web.storage.relation", { value: String(storage.relationStoreBackend ?? t("web.common.dash")) })
+      );
+      if (storage.sqliteFilePath) parts.push(t("web.storage.sqlite", { value: storage.sqliteFilePath }));
       if (storage.sqliteFileSizeBytes != null) {
-        parts.push("sqliteSize=" + formatBytes(storage.sqliteFileSizeBytes));
+        parts.push(t("web.storage.sqlite_size", { value: formatBytes(storage.sqliteFileSizeBytes) }));
       }
-      if (storage.lanceFilePath) parts.push("lance=" + storage.lanceFilePath);
-      if (storage.rawStoreFilePath) parts.push("rawFile=" + storage.rawStoreFilePath);
-      if (storage.relationStoreFilePath) parts.push("relationFile=" + storage.relationStoreFilePath);
+      if (storage.lanceFilePath) parts.push(t("web.storage.lance", { value: storage.lanceFilePath }));
+      if (storage.rawStoreFilePath) parts.push(t("web.storage.raw_file", { value: storage.rawStoreFilePath }));
+      if (storage.relationStoreFilePath) {
+        parts.push(t("web.storage.relation_file", { value: storage.relationStoreFilePath }));
+      }
       return parts.join(" | ");
     }
 
     function formatBytes(value) {
       const number = Number(value ?? 0);
-      if (!Number.isFinite(number) || number < 0) return "-";
-      if (number < 1024) return number + " B";
-      if (number < 1024 * 1024) return (number / 1024).toFixed(1) + " KB";
-      return (number / (1024 * 1024)).toFixed(2) + " MB";
+      if (!Number.isFinite(number) || number < 0) return t("web.common.dash");
+      if (number < 1024) return t("web.byte.b", { value: number });
+      if (number < 1024 * 1024) return t("web.byte.kb", { value: (number / 1024).toFixed(1) });
+      return t("web.byte.mb", { value: (number / (1024 * 1024)).toFixed(2) });
     }
 
     function renderRawContext(rawContext) {
@@ -803,7 +819,7 @@ export function renderAppHtml(): string {
     async function initializeCapabilities() {
       try {
         const response = await fetch("/api/capabilities");
-        if (!response.ok) throw new Error("capabilities failed");
+        if (!response.ok) throw new Error(t("web.error.load_failed"));
         const payload = await response.json();
         debugApiEnabled = Boolean(payload.debugApiEnabled);
         debugAdminTokenRequired = Boolean(payload.adminTokenRequired);
@@ -818,17 +834,17 @@ export function renderAppHtml(): string {
 
     function renderDebugButtonState() {
       if (!debugCapabilitiesLoaded) {
-        debugBtn.textContent = "Debug...";
+        debugBtn.textContent = t("web.button.debug_loading");
         debugBtn.disabled = true;
         return;
       }
       if (!debugApiEnabled) {
-        debugBtn.textContent = "Debug Off";
+        debugBtn.textContent = t("web.button.debug_off");
         debugBtn.disabled = true;
         return;
       }
       debugBtn.disabled = false;
-      debugBtn.textContent = debugVisible ? "Debug On" : "Debug";
+      debugBtn.textContent = debugVisible ? t("web.button.debug_on") : t("web.button.debug");
     }
 
     function disableDebugApi() {
@@ -836,7 +852,7 @@ export function renderAppHtml(): string {
       debugVisible = false;
       debugPanel.hidden = true;
       renderDebugButtonState();
-      storageLine.textContent = "Debug API 未启用（服务端返回 404）。";
+      storageLine.textContent = t("web.error.debug_api_disabled_404");
     }
 
     function buildAdminHeaders() {
@@ -858,7 +874,7 @@ export function renderAppHtml(): string {
 
     function promptAdminToken() {
       const current = debugAdminToken || "";
-      const entered = window.prompt("请输入 Debug API admin token", current);
+      const entered = window.prompt(t("web.prompt.debug_token"), current);
       if (typeof entered !== "string") return "";
       const normalized = entered.trim();
       if (normalized.length === 0) return "";

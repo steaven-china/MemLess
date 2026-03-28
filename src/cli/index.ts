@@ -11,66 +11,117 @@ import {
   type ReadFileResult,
   type ReadonlyFileEntry
 } from "../files/ReadonlyFileService.js";
+import { createI18n } from "../i18n/index.js";
+import type { Locale } from "../i18n/types.js";
 import { MlexTuiApp } from "../tui/MlexTuiApp.js";
 import { startWebServer } from "../web/server.js";
 
+const locale: Locale = process.env.MLEX_LOCALE === "en-US" ? "en-US" : "zh-CN";
+const i18n = createI18n({ locale });
+const optionDescriptions = {
+  host: i18n.t("cli.option.host"),
+  port: i18n.t("cli.option.port"),
+  provider: i18n.t("cli.option.provider"),
+  model: i18n.t("cli.option.model"),
+  chunkStrategy: i18n.t("cli.option.chunk_strategy"),
+  storageBackend: i18n.t("cli.option.storage_backend"),
+  sqliteFile: i18n.t("cli.option.sqlite_file"),
+  lanceFile: i18n.t("cli.option.lance_file"),
+  chromaBaseUrl: i18n.t("cli.option.chroma_base_url"),
+  chromaCollection: i18n.t("cli.option.chroma_collection"),
+  rawStoreBackend: i18n.t("cli.option.raw_store_backend"),
+  rawStoreFile: i18n.t("cli.option.raw_store_file"),
+  relationStoreBackend: i18n.t("cli.option.relation_store_backend"),
+  relationStoreFile: i18n.t("cli.option.relation_store_file"),
+  graphEmbedding: i18n.t("cli.option.graph_embedding"),
+  relationExtractor: i18n.t("cli.option.relation_extractor"),
+  relationModel: i18n.t("cli.option.relation_model"),
+  searchEndpoint: i18n.t("cli.option.search_endpoint"),
+  searchApiKey: i18n.t("cli.option.search_api_key"),
+  webFetchEndpoint: i18n.t("cli.option.web_fetch_endpoint"),
+  webFetchApiKey: i18n.t("cli.option.web_fetch_api_key"),
+  searchMode: i18n.t("cli.option.search_mode"),
+  searchScheduleMinutes: i18n.t("cli.option.search_schedule_minutes"),
+  searchTopK: i18n.t("cli.option.search_topk"),
+  searchSeeds: i18n.t("cli.option.search_seeds"),
+  prediction: i18n.t("cli.option.prediction"),
+  proactiveWakeup: i18n.t("cli.option.proactive_wakeup"),
+  proactiveMinIntervalSeconds: i18n.t("cli.option.proactive_min_interval_seconds"),
+  proactiveMaxPerHour: i18n.t("cli.option.proactive_max_per_hour"),
+  proactiveRequireEvidence: i18n.t("cli.option.proactive_require_evidence"),
+  proactiveTimer: i18n.t("cli.option.proactive_timer"),
+  proactiveTimerIntervalSeconds: i18n.t("cli.option.proactive_timer_interval_seconds"),
+  webDebugApi: i18n.t("cli.option.web_debug_api"),
+  webFileApi: i18n.t("cli.option.web_file_api"),
+  webRawContext: i18n.t("cli.option.web_raw_context"),
+  webAdminToken: i18n.t("cli.option.web_admin_token"),
+  webBodyMaxBytes: i18n.t("cli.option.web_body_max_bytes"),
+  debugTrace: i18n.t("cli.option.debug_trace"),
+  debugTraceMax: i18n.t("cli.option.debug_trace_max"),
+  stream: i18n.t("cli.option.stream"),
+  maxTokens: i18n.t("cli.option.max_tokens"),
+  showContext: i18n.t("cli.option.show_context"),
+  maxEntries: i18n.t("cli.option.max_entries"),
+  maxBytes: i18n.t("cli.option.max_bytes"),
+  agents: i18n.t("cli.option.agents"),
+  showDrafts: i18n.t("cli.option.show_drafts")
+};
+
 const program = new Command();
+
 
 program
   .name("mlex")
-  .description("Partition-memory agent CLI (loads ~/.mlex/config.toml when present)")
+  .description(i18n.t("cli.description.main"))
   .version("0.2.0")
-  .addHelpText(
-    "after",
-    "\nConfig precedence: defaults < ~/.mlex/config.toml < env vars < CLI/runtime overrides."
-  );
+  .addHelpText("after", i18n.t("cli.help.precedence"));
 
 program
   .command("web")
-  .description("Start minimalist web UI")
-  .option("--host <host>", "bind host", "127.0.0.1")
-  .option("--port <number>", "bind port", "8787")
-  .option("--provider <provider>", "rule-based | openai | deepseek-reasoner")
-  .option("--model <model>", "LLM model for openai/deepseek provider")
-  .option("--chunk-strategy <strategy>", "fixed | semantic | hybrid")
-  .option("--storage-backend <backend>", "memory | sqlite | lance | chroma")
-  .option("--sqlite-file <path>", "sqlite database file path")
-  .option("--lance-file <path>", "local file path for lance backend")
-  .option("--raw-store-backend <backend>", "memory | file | sqlite")
-  .option("--raw-store-file <path>", "raw event store file path")
-  .option("--relation-store-backend <backend>", "memory | file | sqlite")
-  .option("--relation-store-file <path>", "relation store file path")
-  .option("--graph-embedding <method>", "node2vec | transe")
-  .option("--relation-extractor <kind>", "heuristic | openai | deepseek")
-  .option("--relation-model <model>", "relation extraction model name")
-  .option("--search-endpoint <url>", "search provider endpoint")
-  .option("--search-api-key <key>", "search provider api key")
-  .option("--web-fetch-endpoint <url>", "web fetch endpoint")
-  .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
-  .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
-  .option("--search-topk <number>", "max results per search record")
-  .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
-  .option("--prediction <enabled>", "true | false")
-  .option("--proactive-wakeup <enabled>", "true | false")
-  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
-  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
-  .option("--proactive-require-evidence <enabled>", "true | false")
-  .option("--proactive-timer <enabled>", "true | false")
-  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
-  .option("--web-debug-api <enabled>", "true | false")
-  .option("--web-file-api <enabled>", "true | false")
-  .option("--web-raw-context <enabled>", "true | false")
-  .option("--web-admin-token <token>", "admin token for debug/files APIs")
-  .option("--web-body-max-bytes <number>", "max request body bytes for /api/chat")
-  .option("--debug-trace <enabled>", "true | false")
-  .option("--debug-trace-max <number>", "max in-memory trace entries")
+  .description(i18n.t("cli.web.description"))
+  .option("--host <host>", optionDescriptions.host, "127.0.0.1")
+  .option("--port <number>", optionDescriptions.port, "8787")
+  .option("--provider <provider>", optionDescriptions.provider)
+  .option("--model <model>", optionDescriptions.model)
+  .option("--chunk-strategy <strategy>", optionDescriptions.chunkStrategy)
+  .option("--storage-backend <backend>", optionDescriptions.storageBackend)
+  .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
+  .option("--lance-file <path>", optionDescriptions.lanceFile)
+  .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
+  .option("--raw-store-file <path>", optionDescriptions.rawStoreFile)
+  .option("--relation-store-backend <backend>", optionDescriptions.relationStoreBackend)
+  .option("--relation-store-file <path>", optionDescriptions.relationStoreFile)
+  .option("--graph-embedding <method>", optionDescriptions.graphEmbedding)
+  .option("--relation-extractor <kind>", optionDescriptions.relationExtractor)
+  .option("--relation-model <model>", optionDescriptions.relationModel)
+  .option("--search-endpoint <url>", optionDescriptions.searchEndpoint)
+  .option("--search-api-key <key>", optionDescriptions.searchApiKey)
+  .option("--web-fetch-endpoint <url>", optionDescriptions.webFetchEndpoint)
+  .option("--web-fetch-api-key <key>", optionDescriptions.webFetchApiKey)
+  .option("--search-mode <mode>", optionDescriptions.searchMode)
+  .option("--search-schedule-minutes <number>", optionDescriptions.searchScheduleMinutes)
+  .option("--search-topk <number>", optionDescriptions.searchTopK)
+  .option("--search-seeds <csv>", optionDescriptions.searchSeeds)
+  .option("--prediction <enabled>", optionDescriptions.prediction)
+  .option("--proactive-wakeup <enabled>", optionDescriptions.proactiveWakeup)
+  .option("--proactive-min-interval-seconds <number>", optionDescriptions.proactiveMinIntervalSeconds)
+  .option("--proactive-max-per-hour <number>", optionDescriptions.proactiveMaxPerHour)
+  .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
+  .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
+  .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
+  .option("--web-debug-api <enabled>", optionDescriptions.webDebugApi)
+  .option("--web-file-api <enabled>", optionDescriptions.webFileApi)
+  .option("--web-raw-context <enabled>", optionDescriptions.webRawContext)
+  .option("--web-admin-token <token>", optionDescriptions.webAdminToken)
+  .option("--web-body-max-bytes <number>", optionDescriptions.webBodyMaxBytes)
+  .option("--debug-trace <enabled>", optionDescriptions.debugTrace)
+  .option("--debug-trace-max <number>", optionDescriptions.debugTraceMax)
   .action(async (options) => {
     const host = asOptionalString(options.host) ?? "127.0.0.1";
     const preferredPort = parseOptionalNumber(asOptionalString(options.port)) ?? 8787;
     const started = await startWebServerWithFallback(host, preferredPort, buildRuntimeOverrides(options));
-    output.write(`MLEX web running at ${started.url}\n`);
-    output.write("Press Ctrl+C to stop.\n");
+    output.write(`${i18n.t("cli.web.running", { url: started.url })}\n`);
+    output.write(`${i18n.t("cli.web.stop_hint")}\n`);
 
     const shutdown = async (): Promise<void> => {
       await started.close();
@@ -86,9 +137,9 @@ program
 
 program
   .command("files:list")
-  .description("List files under readonly workspace root")
-  .argument("[path]", "relative directory path", ".")
-  .option("--max-entries <number>", "max listed entries", "200")
+  .description(i18n.t("cli.files.list.description"))
+  .argument("[path]", i18n.t("cli.files.list.arg_path"), ".")
+  .option("--max-entries <number>", optionDescriptions.maxEntries, "200")
   .action(async (pathInput: string, options) => {
     const fileService = new ReadonlyFileService({ rootPath: process.cwd() });
     const maxEntries = parseOptionalNumber(asOptionalString(options.maxEntries));
@@ -98,9 +149,9 @@ program
 
 program
   .command("files:read")
-  .description("Read one file in readonly mode")
-  .argument("<path>", "relative file path")
-  .option("--max-bytes <number>", "max bytes to read", "65536")
+  .description(i18n.t("cli.files.read.description"))
+  .argument("<path>", i18n.t("cli.files.read.arg_path"))
+  .option("--max-bytes <number>", optionDescriptions.maxBytes, "65536")
   .action(async (pathInput: string, options) => {
     const fileService = new ReadonlyFileService({ rootPath: process.cwd() });
     const maxBytes = parseOptionalNumber(asOptionalString(options.maxBytes));
@@ -108,50 +159,52 @@ program
     output.write(formatFileRead(result));
   });
 
+
 program
   .command("chat")
-  .description("Start fullscreen TUI agent session")
-  .option("--provider <provider>", "rule-based | openai | deepseek-reasoner")
-  .option("--model <model>", "LLM model for openai/deepseek provider")
-  .option("--stream", "enable streaming output", false)
-  .option("--max-tokens <number>", "max tokens per memory block")
-  .option("--chunk-strategy <strategy>", "fixed | semantic | hybrid")
-  .option("--storage-backend <backend>", "memory | sqlite | lance | chroma")
-  .option("--sqlite-file <path>", "sqlite database file path")
-  .option("--lance-file <path>", "local file path for lance backend")
-  .option("--chroma-base-url <url>", "chroma base url")
-  .option("--chroma-collection <id>", "chroma collection id")
-  .option("--raw-store-backend <backend>", "memory | file | sqlite")
-  .option("--raw-store-file <path>", "raw event store file path")
-  .option("--relation-store-backend <backend>", "memory | file | sqlite")
-  .option("--relation-store-file <path>", "relation store file path")
-  .option("--graph-embedding <method>", "node2vec | transe")
-  .option("--relation-extractor <kind>", "heuristic | openai | deepseek")
-  .option("--relation-model <model>", "relation extraction model name")
-  .option("--search-endpoint <url>", "search provider endpoint")
-  .option("--search-api-key <key>", "search provider api key")
-  .option("--web-fetch-endpoint <url>", "web fetch endpoint")
-  .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
-  .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
-  .option("--search-topk <number>", "max results per search record")
-  .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
-  .option("--prediction <enabled>", "true | false")
-  .option("--proactive-wakeup <enabled>", "true | false")
-  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
-  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
-  .option("--proactive-require-evidence <enabled>", "true | false")
-  .option("--proactive-timer <enabled>", "true | false")
-  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
-  .option("--show-context", "print context debug info after each answer", false)
-  .option("--debug-trace <enabled>", "true | false")
-  .option("--debug-trace-max <number>", "max in-memory trace entries")
+  .description(i18n.t("cli.chat.description"))
+  .option("--provider <provider>", optionDescriptions.provider)
+  .option("--model <model>", optionDescriptions.model)
+  .option("--stream", optionDescriptions.stream, false)
+  .option("--max-tokens <number>", optionDescriptions.maxTokens)
+  .option("--chunk-strategy <strategy>", optionDescriptions.chunkStrategy)
+  .option("--storage-backend <backend>", optionDescriptions.storageBackend)
+  .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
+  .option("--lance-file <path>", optionDescriptions.lanceFile)
+  .option("--chroma-base-url <url>", optionDescriptions.chromaBaseUrl)
+  .option("--chroma-collection <id>", optionDescriptions.chromaCollection)
+  .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
+  .option("--raw-store-file <path>", optionDescriptions.rawStoreFile)
+  .option("--relation-store-backend <backend>", optionDescriptions.relationStoreBackend)
+  .option("--relation-store-file <path>", optionDescriptions.relationStoreFile)
+  .option("--graph-embedding <method>", optionDescriptions.graphEmbedding)
+  .option("--relation-extractor <kind>", optionDescriptions.relationExtractor)
+  .option("--relation-model <model>", optionDescriptions.relationModel)
+  .option("--search-endpoint <url>", optionDescriptions.searchEndpoint)
+  .option("--search-api-key <key>", optionDescriptions.searchApiKey)
+  .option("--web-fetch-endpoint <url>", optionDescriptions.webFetchEndpoint)
+  .option("--web-fetch-api-key <key>", optionDescriptions.webFetchApiKey)
+  .option("--search-mode <mode>", optionDescriptions.searchMode)
+  .option("--search-schedule-minutes <number>", optionDescriptions.searchScheduleMinutes)
+  .option("--search-topk <number>", optionDescriptions.searchTopK)
+  .option("--search-seeds <csv>", optionDescriptions.searchSeeds)
+  .option("--prediction <enabled>", optionDescriptions.prediction)
+  .option("--proactive-wakeup <enabled>", optionDescriptions.proactiveWakeup)
+  .option("--proactive-min-interval-seconds <number>", optionDescriptions.proactiveMinIntervalSeconds)
+  .option("--proactive-max-per-hour <number>", optionDescriptions.proactiveMaxPerHour)
+  .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
+  .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
+  .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
+  .option("--show-context", optionDescriptions.showContext, false)
+  .option("--debug-trace <enabled>", optionDescriptions.debugTrace)
+  .option("--debug-trace-max <number>", optionDescriptions.debugTraceMax)
   .action(async (options) => {
     const runtime = createRuntime(buildRuntimeOverrides(options));
     const fileService = new ReadonlyFileService({ rootPath: process.cwd() });
     const traceRecorder = runtime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
     const tui = new MlexTuiApp({
       runtime,
+      i18n: runtime.container.resolve("i18n"),
       fileService,
       traceRecorder,
       streamEnabled: Boolean(options.stream),
@@ -168,35 +221,35 @@ program
 
 program
   .command("ingest")
-  .description("Ingest a text file into memory blocks")
-  .argument("<file>", "path to txt/markdown file")
-  .option("--provider <provider>", "rule-based | openai | deepseek-reasoner", "rule-based")
-  .option("--model <model>", "LLM model for openai/deepseek provider")
-  .option("--storage-backend <backend>", "memory | sqlite | lance | chroma", "sqlite")
-  .option("--sqlite-file <path>", "sqlite database file path")
-  .option("--lance-file <path>", "local file path for lance backend")
-  .option("--raw-store-backend <backend>", "memory | file | sqlite")
-  .option("--raw-store-file <path>", "raw event store file path")
-  .option("--relation-store-backend <backend>", "memory | file | sqlite")
-  .option("--relation-store-file <path>", "relation store file path")
-  .option("--graph-embedding <method>", "node2vec | transe")
-  .option("--relation-extractor <kind>", "heuristic | openai | deepseek")
-  .option("--relation-model <model>", "relation extraction model name")
-  .option("--search-endpoint <url>", "search provider endpoint")
-  .option("--search-api-key <key>", "search provider api key")
-  .option("--web-fetch-endpoint <url>", "web fetch endpoint")
-  .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
-  .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
-  .option("--search-topk <number>", "max results per search record")
-  .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
-  .option("--prediction <enabled>", "true | false")
-  .option("--proactive-wakeup <enabled>", "true | false")
-  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
-  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
-  .option("--proactive-require-evidence <enabled>", "true | false")
-  .option("--proactive-timer <enabled>", "true | false")
-  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
+  .description(i18n.t("cli.ingest.description"))
+  .argument("<file>", i18n.t("cli.ingest.arg_file"))
+  .option("--provider <provider>", optionDescriptions.provider, "rule-based")
+  .option("--model <model>", optionDescriptions.model)
+  .option("--storage-backend <backend>", optionDescriptions.storageBackend, "sqlite")
+  .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
+  .option("--lance-file <path>", optionDescriptions.lanceFile)
+  .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
+  .option("--raw-store-file <path>", optionDescriptions.rawStoreFile)
+  .option("--relation-store-backend <backend>", optionDescriptions.relationStoreBackend)
+  .option("--relation-store-file <path>", optionDescriptions.relationStoreFile)
+  .option("--graph-embedding <method>", optionDescriptions.graphEmbedding)
+  .option("--relation-extractor <kind>", optionDescriptions.relationExtractor)
+  .option("--relation-model <model>", optionDescriptions.relationModel)
+  .option("--search-endpoint <url>", optionDescriptions.searchEndpoint)
+  .option("--search-api-key <key>", optionDescriptions.searchApiKey)
+  .option("--web-fetch-endpoint <url>", optionDescriptions.webFetchEndpoint)
+  .option("--web-fetch-api-key <key>", optionDescriptions.webFetchApiKey)
+  .option("--search-mode <mode>", optionDescriptions.searchMode)
+  .option("--search-schedule-minutes <number>", optionDescriptions.searchScheduleMinutes)
+  .option("--search-topk <number>", optionDescriptions.searchTopK)
+  .option("--search-seeds <csv>", optionDescriptions.searchSeeds)
+  .option("--prediction <enabled>", optionDescriptions.prediction)
+  .option("--proactive-wakeup <enabled>", optionDescriptions.proactiveWakeup)
+  .option("--proactive-min-interval-seconds <number>", optionDescriptions.proactiveMinIntervalSeconds)
+  .option("--proactive-max-per-hour <number>", optionDescriptions.proactiveMaxPerHour)
+  .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
+  .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
+  .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
   .action(async (file: string, options) => {
     const runtime = createRuntime(buildRuntimeOverrides(options));
     try {
@@ -207,47 +260,48 @@ program
         .filter(Boolean);
 
       for (const segment of segments) {
-        await runtime.agent.respond(`请记住以下资料：\n${segment}`);
+        await runtime.agent.respond(i18n.t("cli.ingest.prompt", { segment }));
       }
       await runtime.agent.sealMemory();
-      output.write(`ingest complete: ${segments.length} segments processed.\n`);
+      output.write(`${i18n.t("cli.ingest.done", { count: segments.length })}\n`);
     } finally {
       await runtime.close();
     }
   });
 
+
 program
   .command("ask")
-  .description("Ask one question and print answer")
-  .argument("<query>", "question to ask")
-  .option("--provider <provider>", "rule-based | openai | deepseek-reasoner")
-  .option("--model <model>", "LLM model for openai/deepseek provider")
-  .option("--stream", "enable streaming output", false)
-  .option("--storage-backend <backend>", "memory | sqlite | lance | chroma")
-  .option("--sqlite-file <path>", "sqlite database file path")
-  .option("--lance-file <path>", "local file path for lance backend")
-  .option("--raw-store-backend <backend>", "memory | file | sqlite")
-  .option("--raw-store-file <path>", "raw event store file path")
-  .option("--relation-store-backend <backend>", "memory | file | sqlite")
-  .option("--relation-store-file <path>", "relation store file path")
-  .option("--graph-embedding <method>", "node2vec | transe")
-  .option("--relation-extractor <kind>", "heuristic | openai | deepseek")
-  .option("--relation-model <model>", "relation extraction model name")
-  .option("--search-endpoint <url>", "search provider endpoint")
-  .option("--search-api-key <key>", "search provider api key")
-  .option("--web-fetch-endpoint <url>", "web fetch endpoint")
-  .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
-  .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
-  .option("--search-topk <number>", "max results per search record")
-  .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
-  .option("--prediction <enabled>", "true | false")
-  .option("--proactive-wakeup <enabled>", "true | false")
-  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
-  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
-  .option("--proactive-require-evidence <enabled>", "true | false")
-  .option("--proactive-timer <enabled>", "true | false")
-  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
+  .description(i18n.t("cli.ask.description"))
+  .argument("<query>", i18n.t("cli.ask.arg_query"))
+  .option("--provider <provider>", optionDescriptions.provider)
+  .option("--model <model>", optionDescriptions.model)
+  .option("--stream", optionDescriptions.stream, false)
+  .option("--storage-backend <backend>", optionDescriptions.storageBackend)
+  .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
+  .option("--lance-file <path>", optionDescriptions.lanceFile)
+  .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
+  .option("--raw-store-file <path>", optionDescriptions.rawStoreFile)
+  .option("--relation-store-backend <backend>", optionDescriptions.relationStoreBackend)
+  .option("--relation-store-file <path>", optionDescriptions.relationStoreFile)
+  .option("--graph-embedding <method>", optionDescriptions.graphEmbedding)
+  .option("--relation-extractor <kind>", optionDescriptions.relationExtractor)
+  .option("--relation-model <model>", optionDescriptions.relationModel)
+  .option("--search-endpoint <url>", optionDescriptions.searchEndpoint)
+  .option("--search-api-key <key>", optionDescriptions.searchApiKey)
+  .option("--web-fetch-endpoint <url>", optionDescriptions.webFetchEndpoint)
+  .option("--web-fetch-api-key <key>", optionDescriptions.webFetchApiKey)
+  .option("--search-mode <mode>", optionDescriptions.searchMode)
+  .option("--search-schedule-minutes <number>", optionDescriptions.searchScheduleMinutes)
+  .option("--search-topk <number>", optionDescriptions.searchTopK)
+  .option("--search-seeds <csv>", optionDescriptions.searchSeeds)
+  .option("--prediction <enabled>", optionDescriptions.prediction)
+  .option("--proactive-wakeup <enabled>", optionDescriptions.proactiveWakeup)
+  .option("--proactive-min-interval-seconds <number>", optionDescriptions.proactiveMinIntervalSeconds)
+  .option("--proactive-max-per-hour <number>", optionDescriptions.proactiveMaxPerHour)
+  .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
+  .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
+  .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
   .action(async (query: string, options) => {
     const runtime = createRuntime(buildRuntimeOverrides(options));
     try {
@@ -266,37 +320,37 @@ program
 
 program
   .command("swarm")
-  .description("Run multi-agent collaboration and synthesis")
-  .argument("<query>", "question/task to solve")
-  .option("--provider <provider>", "rule-based | openai | deepseek-reasoner")
-  .option("--model <model>", "LLM model for openai/deepseek provider")
-  .option("--agents <number>", "number of worker agents (2-5)", "3")
-  .option("--no-show-drafts", "hide each worker draft before final synthesis")
-  .option("--storage-backend <backend>", "memory | sqlite | lance | chroma")
-  .option("--sqlite-file <path>", "sqlite database file path")
-  .option("--lance-file <path>", "local file path for lance backend")
-  .option("--raw-store-backend <backend>", "memory | file | sqlite")
-  .option("--raw-store-file <path>", "raw event store file path")
-  .option("--relation-store-backend <backend>", "memory | file | sqlite")
-  .option("--relation-store-file <path>", "relation store file path")
-  .option("--graph-embedding <method>", "node2vec | transe")
-  .option("--relation-extractor <kind>", "heuristic | openai | deepseek")
-  .option("--relation-model <model>", "relation extraction model name")
-  .option("--search-endpoint <url>", "search provider endpoint")
-  .option("--search-api-key <key>", "search provider api key")
-  .option("--web-fetch-endpoint <url>", "web fetch endpoint")
-  .option("--web-fetch-api-key <key>", "web fetch api key")
-  .option("--search-mode <mode>", "lazy | auto | scheduled | predictive")
-  .option("--search-schedule-minutes <number>", "scheduled ingest interval minutes")
-  .option("--search-topk <number>", "max results per search record")
-  .option("--search-seeds <csv>", "scheduled seed queries, comma separated")
-  .option("--prediction <enabled>", "true | false")
-  .option("--proactive-wakeup <enabled>", "true | false")
-  .option("--proactive-min-interval-seconds <number>", "minimum proactive wakeup interval")
-  .option("--proactive-max-per-hour <number>", "maximum proactive wakeups per hour")
-  .option("--proactive-require-evidence <enabled>", "true | false")
-  .option("--proactive-timer <enabled>", "true | false")
-  .option("--proactive-timer-interval-seconds <number>", "proactive timer interval seconds")
+  .description(i18n.t("cli.swarm.description"))
+  .argument("<query>", i18n.t("cli.swarm.arg_query"))
+  .option("--provider <provider>", optionDescriptions.provider)
+  .option("--model <model>", optionDescriptions.model)
+  .option("--agents <number>", optionDescriptions.agents, "3")
+  .option("--no-show-drafts", optionDescriptions.showDrafts)
+  .option("--storage-backend <backend>", optionDescriptions.storageBackend)
+  .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
+  .option("--lance-file <path>", optionDescriptions.lanceFile)
+  .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
+  .option("--raw-store-file <path>", optionDescriptions.rawStoreFile)
+  .option("--relation-store-backend <backend>", optionDescriptions.relationStoreBackend)
+  .option("--relation-store-file <path>", optionDescriptions.relationStoreFile)
+  .option("--graph-embedding <method>", optionDescriptions.graphEmbedding)
+  .option("--relation-extractor <kind>", optionDescriptions.relationExtractor)
+  .option("--relation-model <model>", optionDescriptions.relationModel)
+  .option("--search-endpoint <url>", optionDescriptions.searchEndpoint)
+  .option("--search-api-key <key>", optionDescriptions.searchApiKey)
+  .option("--web-fetch-endpoint <url>", optionDescriptions.webFetchEndpoint)
+  .option("--web-fetch-api-key <key>", optionDescriptions.webFetchApiKey)
+  .option("--search-mode <mode>", optionDescriptions.searchMode)
+  .option("--search-schedule-minutes <number>", optionDescriptions.searchScheduleMinutes)
+  .option("--search-topk <number>", optionDescriptions.searchTopK)
+  .option("--search-seeds <csv>", optionDescriptions.searchSeeds)
+  .option("--prediction <enabled>", optionDescriptions.prediction)
+  .option("--proactive-wakeup <enabled>", optionDescriptions.proactiveWakeup)
+  .option("--proactive-min-interval-seconds <number>", optionDescriptions.proactiveMinIntervalSeconds)
+  .option("--proactive-max-per-hour <number>", optionDescriptions.proactiveMaxPerHour)
+  .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
+  .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
+  .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
   .action(async (query: string, options) => {
     const workerCount = clampAgents(options.agents);
     const roles = buildRoles(workerCount);
@@ -304,26 +358,25 @@ program
 
     if (options.showDrafts) {
       for (const item of workerResults) {
-        output.write(`\n[${item.role}] draft:\n${item.text}\n`);
+        output.write(`${i18n.t("cli.swarm.draft_title", { role: item.role, text: item.text })}\n`);
       }
     }
 
     const synthesisPrompt = [
-      "请综合以下多 Agent 结果，给出最终统一方案：",
-      ...workerResults.map(
-        (item, index) => `\n[Worker ${index + 1} - ${item.role}]\n${item.text}`
+      i18n.t("cli.swarm.synthesis.intro"),
+      ...workerResults.map((item, index) =>
+        i18n.t("cli.swarm.synthesis.worker", { index: index + 1, role: item.role, text: item.text })
       ),
-      `\n[原始任务]\n${query}`,
-      "\n输出格式：结论、关键步骤、风险点、下一步行动。"
+      i18n.t("cli.swarm.synthesis.original", { query }),
+      i18n.t("cli.swarm.synthesis.format")
     ].join("\n");
 
     const coordinator = createRuntime(buildRuntimeOverrides(options), {
-      agentSystemPrompt:
-        "You are the coordinator agent. Merge drafts, resolve conflicts, and output one practical final answer."
+      agentSystemPrompt: i18n.t("cli.swarm.coordinator_prompt")
     });
     try {
       const final = await coordinator.agent.respond(synthesisPrompt);
-      output.write(`\n[Coordinator]\n${final.text}\n`);
+      output.write(`${i18n.t("cli.swarm.coordinator_title")}\n${final.text}\n`);
     } finally {
       await coordinator.close();
     }
@@ -420,20 +473,31 @@ function parseOptionalCsv(value: string | undefined): string[] | undefined {
 }
 
 function formatFileList(entries: ReadonlyFileEntry[], pathInput: string): string {
-  const header = `agent> readonly list: ${pathInput}\n`;
+  const header = `${i18n.t("cli.files.list.header", { path: pathInput })}\n`;
   if (entries.length === 0) {
-    return `${header}(empty)\n`;
+    return `${header}${i18n.t("cli.files.list.empty")}\n`;
   }
   const lines = entries.map((entry) => {
-    const prefix = entry.type === "dir" ? "[dir] " : entry.type === "file" ? "[file]" : "[other]";
-    const sizePart = typeof entry.sizeBytes === "number" ? ` ${entry.sizeBytes}B` : "";
+    const prefix =
+      entry.type === "dir"
+        ? i18n.t("cli.files.list.type.dir")
+        : entry.type === "file"
+          ? i18n.t("cli.files.list.type.file")
+          : i18n.t("cli.files.list.type.other");
+    const sizePart = typeof entry.sizeBytes === "number" ? i18n.t("cli.files.list.size", { size: entry.sizeBytes }) : "";
     return `${prefix} ${entry.path}${sizePart}`;
   });
   return `${header}${lines.join("\n")}\n`;
 }
 
 function formatFileRead(result: ReadFileResult): string {
-  const meta = `agent> readonly read: ${result.path} (${result.bytes}/${result.totalBytes} bytes${result.truncated ? ", truncated" : ""})\n`;
+  const meta =
+    `${i18n.t("cli.files.read.meta", {
+      path: result.path,
+      bytes: result.bytes,
+      totalBytes: result.totalBytes,
+      truncated: result.truncated ? i18n.t("cli.files.read.truncated") : ""
+    })}\n`;
   return `${meta}${result.text}\n`;
 }
 
@@ -468,29 +532,29 @@ function clampAgents(value: unknown): number {
 function buildRoles(count: number): Array<{ name: string; instruction: string; systemPrompt: string }> {
   const templates = [
     {
-      name: "Planner",
-      systemPrompt: "You are a senior planner agent focused on decomposition and milestones.",
-      instruction: "请重点输出执行计划、里程碑与优先级。"
+      name: i18n.t("cli.swarm.role.planner"),
+      systemPrompt: i18n.t("cli.swarm.role_prompt.planner"),
+      instruction: i18n.t("cli.swarm.instruction.plan")
     },
     {
-      name: "Implementer",
-      systemPrompt: "You are a senior implementation agent focused on technical execution.",
-      instruction: "请重点输出可落地实现方案、接口与工程结构。"
+      name: i18n.t("cli.swarm.role.implementer"),
+      systemPrompt: i18n.t("cli.swarm.role_prompt.implementer"),
+      instruction: i18n.t("cli.swarm.instruction.arch")
     },
     {
-      name: "Critic",
-      systemPrompt: "You are a critical reviewer agent focused on risk and edge cases.",
-      instruction: "请重点指出风险、失败模式、监控与回滚策略。"
+      name: i18n.t("cli.swarm.role.critic"),
+      systemPrompt: i18n.t("cli.swarm.role_prompt.critic"),
+      instruction: i18n.t("cli.swarm.instruction.risk")
     },
     {
-      name: "Optimizer",
-      systemPrompt: "You optimize for performance, cost and reliability trade-offs.",
-      instruction: "请重点优化性能/成本/可靠性并给出取舍建议。"
+      name: i18n.t("cli.swarm.role.optimizer"),
+      systemPrompt: i18n.t("cli.swarm.role_prompt.optimizer"),
+      instruction: i18n.t("cli.swarm.instruction.performance")
     },
     {
-      name: "Product",
-      systemPrompt: "You focus on product value, usability, and iteration planning.",
-      instruction: "请重点补充产品化交互、验收标准与迭代建议。"
+      name: i18n.t("cli.swarm.role.product"),
+      systemPrompt: i18n.t("cli.swarm.role_prompt.product"),
+      instruction: i18n.t("cli.swarm.instruction.product")
     }
   ];
   return templates.slice(0, count);
@@ -507,7 +571,10 @@ async function runSwarmWorkers(
         agentSystemPrompt: role.systemPrompt
       });
       try {
-        const response = await runtime.agent.respond(`${role.instruction}\n\n任务：${query}`);
+        const response = await runtime.agent.respond(i18n.t("cli.swarm.task_prefix", {
+          instruction: role.instruction,
+          query
+        }));
         return {
           role: role.name,
           text: response.text
@@ -534,7 +601,7 @@ async function startWebServerWithFallback(
     if (!isAddressInUse(error)) {
       throw error;
     }
-    output.write(`Port ${preferredPort} is in use, falling back to a random port.\n`);
+    output.write(`${i18n.t("cli.web.port_fallback", { port: preferredPort })}\n`);
     return startWebServer({
       host,
       port: 0,
