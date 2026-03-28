@@ -127,6 +127,7 @@ export function renderAppHtml(i18n: I18n): string {
           </div>
         </form>
         <div class="hint">${i18n.t("web.hint.main")}</div>
+        <div class="hint">${i18n.t("web.hint.agent_files")}</div>
         <details class="raw-context">
           <summary>${i18n.t("web.raw_context.summary")}</summary>
           <pre id="rawContextView">${i18n.t("web.raw_context.empty")}</pre>

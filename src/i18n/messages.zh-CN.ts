@@ -16,6 +16,7 @@ export const ZH_CN_MESSAGES: MessageDictionary = {
   "web.button.seal": "Seal",
   "web.button.send": "Send",
   "web.hint.main": "极简前端：默认流式输出，支持多行粘贴，支持 /trace [n] 与 /trace-clear。",
+  "web.hint.agent_files": "Agent 提示文件会自动加载 AgentDocs/AGENT.md（或回退到 AGENTS.md），并在冷启动时注入 Introduction.md。",
   "web.raw_context.summary": "原始上下文（最近一次）",
   "web.raw_context.empty": "暂无上下文",
   "web.debug.title": "数据库调试可视化（右侧）",

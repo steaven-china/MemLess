@@ -16,6 +16,7 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "web.button.seal": "Seal",
   "web.button.send": "Send",
   "web.hint.main": "Minimal frontend: streaming enabled by default, supports multi-line paste, /trace [n], and /trace-clear.",
+  "web.hint.agent_files": "Agent prompt files are auto-loaded from AgentDocs/AGENT.md (or AGENTS.md fallback), and Introduction.md is injected on cold start.",
   "web.raw_context.summary": "Raw context (latest)",
   "web.raw_context.empty": "No context yet",
   "web.debug.title": "Database debug view (right panel)",
