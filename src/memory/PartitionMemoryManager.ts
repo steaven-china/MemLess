@@ -19,7 +19,7 @@ import type {
   ProactiveTriggerSource
 } from "../types.js";
 import { createId } from "../utils/id.js";
-import { extractKeywords, hasDirectionalIntent, normalizeText } from "../utils/text.js";
+import { extractKeywords, hasDirectionalIntent, normalizeText, tokenize } from "../utils/text.js";;
 import { AsyncRelationQueue } from "./relation/AsyncRelationQueue.js";
 import type { IRelationExtractor } from "./relation/RelationExtractor.js";
 import type { IRelationStore } from "./relation/IRelationStore.js";
@@ -52,11 +52,15 @@ export interface PartitionMemoryManagerDeps {
   predictor: PredictorEngine;
   keywordIndex?: InvertedIndex;
   relationGraph?: RelationGraph;
+  blockIdFactory?: () => string;
+  nowMs?: () => number;
   config: ManagerConfig;
 }
 
 export class PartitionMemoryManager implements IMemoryManager {
   private static readonly TIMER_PROBE_QUERY = "__mlex_proactive_timer_probe__";
+  private readonly nowMs: () => number;
+  private readonly blockIdFactory: () => string;
   private activeBlock: MemoryBlock;
   private readonly blockTable = new Map<string, MemoryBlock>();
   private readonly keywordIndex: InvertedIndex;
@@ -79,6 +83,8 @@ export class PartitionMemoryManager implements IMemoryManager {
   private proactiveTickRunning = false;
 
   constructor(private readonly deps: PartitionMemoryManagerDeps) {
+    this.nowMs = deps.nowMs ?? (() => Date.now());
+    this.blockIdFactory = deps.blockIdFactory ?? (() => createId("block"));
     this.keywordIndex = deps.keywordIndex ?? new InvertedIndex();
     this.relationGraph = deps.relationGraph ?? new RelationGraph();
     this.activeBlock = this.createEmptyBlock();
@@ -181,6 +187,11 @@ export class PartitionMemoryManager implements IMemoryManager {
     });
     const scores = new Map(initial.scores);
     this.applyPendingPrefetchBoost(scores);
+    const prePredictionScores = new Map(scores);
+    if (!hasLoggedPrePredictionScores.value) {
+      console.info("prePredictionScores", [...scores.entries()].slice(0, 5));
+      hasLoggedPrePredictionScores.value = true;
+    }
 
     const seedIds = [...initial.semanticSeedIds];
     if (this.lastSealedBlockId) seedIds.push(this.lastSealedBlockId);
@@ -191,18 +202,46 @@ export class PartitionMemoryManager implements IMemoryManager {
       rawPrediction,
       embedding,
       initial.semanticSeedIds,
-      triggerSource
+      triggerSource,
+      query,
+      keywords
     );
-    this.lastPrediction = prediction;
+    const isSparseQuery = isKeywordSparseQuery(query, keywords);
+    const boostMultiplier = isSparseQuery
+      ? KEYWORD_SPARSE_BOOST_MULTIPLIER
+      : this.deps.config.predictionDenseBoostMultiplier;
+    let maxBoost = 0;
     if (prediction?.activeTrigger) {
       for (const intent of prediction.intents) {
         const base = scores.get(intent.blockId) ?? 0;
-        scores.set(intent.blockId, base + intent.confidence * this.deps.config.predictionBoostWeight);
+        if (boostMultiplier <= 0) continue;
+        if (isSparseQuery) {
+          if (base > this.deps.config.predictionBaseScoreGateMax) continue;
+        } else {
+          const denseGatePassed =
+            intent.confidence >= this.deps.config.predictionDenseConfidenceGateMin ||
+            base <= this.deps.config.predictionBaseScoreGateMax;
+          if (!denseGatePassed) continue;
+        }
+        const boost = computePredictionBoost(
+          intent.confidence,
+          this.deps.config.predictionBoostWeight,
+          boostMultiplier,
+          this.deps.config.predictionBoostCap
+        );
+        maxBoost = Math.max(maxBoost, boost);
+        scores.set(intent.blockId, base + boost);
       }
     }
+    this.lastPrediction = this.attachPredictionDiagnostics(
+      prediction,
+      prePredictionScores,
+      scores,
+      boostMultiplier,
+      maxBoost
+    );
 
-    const blockIds = [...scores.entries()]
-      .sort((a, b) => b[1] - a[1])
+    const blockIds = sortScoreEntries(scores)
       .slice(0, this.deps.config.finalTopK)
       .map(([blockId]) => blockId);
 
@@ -343,11 +382,11 @@ export class PartitionMemoryManager implements IMemoryManager {
   }
 
   private createEmptyBlock(): MemoryBlock {
-    return new MemoryBlock(createId("block"));
+    return new MemoryBlock(this.blockIdFactory(), this.nowMs());
   }
 
   private normalizeIncomingEvent(event: MemoryEvent): MemoryEvent {
-    const incomingTimestamp = Number.isFinite(event.timestamp) ? event.timestamp : Date.now();
+    const incomingTimestamp = Number.isFinite(event.timestamp) ? event.timestamp : this.nowMs();
     const normalizedTimestamp = Math.max(incomingTimestamp, this.lastEventTimestampMs + 1);
     this.lastEventTimestampMs = normalizedTimestamp;
     if (normalizedTimestamp === event.timestamp) {
@@ -360,17 +399,23 @@ export class PartitionMemoryManager implements IMemoryManager {
   }
 
   private nextRelationTimestampMs(candidateTimestamp: number): number {
-    const normalized = Number.isFinite(candidateTimestamp) ? candidateTimestamp : Date.now();
+    const normalized = Number.isFinite(candidateTimestamp) ? candidateTimestamp : this.nowMs();
     const next = Math.max(normalized, this.lastRelationTimestampMs + 1);
     this.lastRelationTimestampMs = next;
     return next;
+  }
+
+  private nowUtcSeconds(): number {
+    return Math.floor(this.nowMs() / 1000);
   }
 
   private async applyProactivePredictionGate(
     prediction: PredictionResult | undefined,
     queryEmbedding: number[],
     semanticSeedIds: string[],
-    triggerSource: ProactiveTriggerSource
+    triggerSource: ProactiveTriggerSource,
+    query: string,
+    queryKeywords: string[]
   ): Promise<PredictionResult | undefined> {
     if (!prediction) {
       this.lastProactiveSignal = {
@@ -385,6 +430,39 @@ export class PartitionMemoryManager implements IMemoryManager {
       };
       return undefined;
     }
+    if (this.deps.config.predictionForceActiveTrigger) {
+      this.lastProactiveSignal = {
+        allowWakeup: true,
+        mode: "inject",
+        intents: prediction.intents,
+        reason: "force_active_trigger",
+        evidenceNeedHint: this.deps.config.proactiveWakeupRequireEvidence ? "search_required" : "search_optional",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
+      return {
+        ...prediction,
+        activeTrigger: true
+      };
+    }
+
+    if (isKeywordSparseQuery(query, queryKeywords)) {
+      this.lastProactiveSignal = {
+        allowWakeup: true,
+        mode: "inject",
+        intents: prediction.intents,
+        reason: "keyword_sparse_priority",
+        evidenceNeedHint: this.deps.config.proactiveWakeupRequireEvidence ? "search_required" : "search_optional",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
+      return {
+        ...prediction,
+        activeTrigger: true
+      };
+    }
     if (!prediction.activeTrigger) {
       this.lastProactiveSignal = {
         allowWakeup: false,
@@ -398,7 +476,7 @@ export class PartitionMemoryManager implements IMemoryManager {
       };
       return prediction;
     }
-    const nowUtc = nowUtcSeconds();
+    const nowUtc = this.nowUtcSeconds();
     const lastMsgUtc = this.prevMessageUtc ?? this.lastMessageUtc ?? nowUtc;
     const firstMsgUtc = this.firstMessageUtc ?? lastMsgUtc;
     const timingDecision = proactivePolicy(nowUtc, lastMsgUtc, firstMsgUtc, this.lastTriggerUtc);
@@ -516,19 +594,59 @@ export class PartitionMemoryManager implements IMemoryManager {
   }
 
   private applyPendingPrefetchBoost(scores: Map<string, number>): void {
-    applyPrefetchBoost(this.prefetchedIntents, scores, nowUtcSeconds(), {
+    applyPrefetchBoost(this.prefetchedIntents, scores, this.nowUtcSeconds(), {
       ttlSeconds: PREFETCH_TTL_SECONDS,
       boostRatio: PREFETCH_BOOST_RATIO,
       predictionBoostWeight: this.deps.config.predictionBoostWeight
     });
   }
 
+  private attachPredictionDiagnostics(
+    prediction: PredictionResult | undefined,
+    preScores: Map<string, number>,
+    postScores: Map<string, number>,
+    boostMultiplier: number,
+    maxBoost: number
+  ): PredictionResult | undefined {
+    if (!prediction) return undefined;
+    const topIntent = prediction.intents[0];
+    if (!topIntent) return prediction;
+
+    const targetId = topIntent.blockId;
+    const fallbackRank = preScores.size + 1;
+    const preRank = computeRank(preScores, targetId, fallbackRank);
+    const postRank = computeRank(postScores, targetId, fallbackRank);
+    const preScore = preScores.get(targetId) ?? 0;
+    const postScore = postScores.get(targetId) ?? 0;
+    const maxScoreGap = computeMaxScoreGap(postScores, targetId, this.deps.config.finalTopK);
+    const preTopScores = computeTopScores(preScores, this.deps.config.finalTopK);
+    const postTopScores = computeTopScores(postScores, this.deps.config.finalTopK);
+
+    return {
+      ...prediction,
+      predictionWeight: computePredictionBoost(
+        topIntent.confidence,
+        this.deps.config.predictionBoostWeight,
+        boostMultiplier,
+        this.deps.config.predictionBoostCap
+      ),
+      rerankShift: postScore - preScore,
+      deltaRank: preRank - postRank,
+      baseScore: preScore,
+      finalScore: postScore,
+      maxScoreGap,
+      maxBoost,
+      preTopScores,
+      postTopScores
+    };
+  }
+
   private async hydrateFromPersistence(): Promise<void> {
     const blocks = await this.deps.blockStore.list();
     const sortedBlocks = [...blocks].sort((a, b) => a.endTime - b.endTime);
     if (sortedBlocks.length > 0) {
-      this.firstMessageUtc = toUtcSeconds(sortedBlocks[0]?.startTime ?? Date.now());
-      this.lastMessageUtc = toUtcSeconds(sortedBlocks[sortedBlocks.length - 1]?.endTime ?? Date.now());
+      this.firstMessageUtc = toUtcSeconds(sortedBlocks[0]?.startTime ?? this.nowMs());
+      this.lastMessageUtc = toUtcSeconds(sortedBlocks[sortedBlocks.length - 1]?.endTime ?? this.nowMs());
       this.prevMessageUtc = this.lastMessageUtc;
       this.lastEventTimestampMs = sortedBlocks[sortedBlocks.length - 1]?.endTime ?? 0;
     }
@@ -626,12 +744,69 @@ function toUtcSeconds(timestampMs: number): number {
   return Math.floor(timestampMs / 1000);
 }
 
-function nowUtcSeconds(): number {
-  return Math.floor(Date.now() / 1000);
+function computeRank(scores: Map<string, number>, blockId: string, fallbackRank = -1): number {
+  const entries = sortScoreEntries(scores);
+  const index = entries.findIndex(([id]) => id === blockId);
+  return index >= 0 ? index + 1 : fallbackRank;
+}
+
+function computeMaxScoreGap(scores: Map<string, number>, blockId: string, finalTopK: number): number {
+  const entries = sortScoreEntries(scores);
+  const rank = entries.findIndex(([id]) => id === blockId);
+  if (rank < 0) return 0;
+  const targetScore = entries[rank]?.[1] ?? 0;
+  const thresholdIndex = Math.max(0, Math.min(entries.length - 1, finalTopK - 1));
+  const thresholdScore = entries[thresholdIndex]?.[1] ?? targetScore;
+  return Math.max(0, thresholdScore - targetScore);
+}
+
+function computeTopScores(
+  scores: Map<string, number>,
+  limit: number
+): Array<{ blockId: string; score: number }> {
+  return sortScoreEntries(scores)
+    .slice(0, Math.max(1, limit))
+    .map(([blockId, score]) => ({ blockId, score }));
+}
+
+function sortScoreEntries(scores: Map<string, number>): Array<[string, number]> {
+  return [...scores.entries()].sort((a, b) => {
+    const byScore = b[1] - a[1];
+    if (byScore !== 0) return byScore;
+    return a[0].localeCompare(b[0]);
+  });
+}
+
+function isKeywordSparseQuery(query: string, keywords: string[]): boolean {
+  if (keywords.length === 0) return true;
+  const normalizedTokens = new Set(tokenize(query));
+  const matched = keywords.filter((keyword) => normalizedTokens.has(keyword.toLowerCase())).length;
+  return matched / keywords.length < QUERY_KEYWORD_DENSE_RATIO;
+}
+
+function computePredictionBoost(
+  confidence: number,
+  predictionBoostWeight: number,
+  boostMultiplier: number,
+  boostCap: number
+): number {
+  console.info("[prediction-boost]", {
+    confidence,
+    predictionBoostWeight,
+    boostMultiplier
+  });
+  const rawBoost = confidence * predictionBoostWeight * boostMultiplier * PREDICTION_BOOST_SCALE;
+  return Math.min(Math.max(rawBoost, PREDICTION_BOOST_FLOOR), boostCap);
 }
 
 const PREFETCH_TTL_SECONDS = 30 * 60;
 const PREFETCH_BOOST_RATIO = 0.6;
+const hasLoggedPrePredictionScores = { value: false };
+const QUERY_KEYWORD_DENSE_RATIO = 0.5;
+const PREDICTION_BOOST_SCALE = 12;
+const PREDICTION_BOOST_FLOOR = 0;
+const DEFAULT_BOOST_MULTIPLIER = 4;
+const KEYWORD_SPARSE_BOOST_MULTIPLIER = 8;
 const PREFETCH_RETRIEVE_THRESHOLDS = {
   entropyRejectThreshold: 0.75,
   entropyAcceptThreshold: 0.5,

@@ -109,6 +109,8 @@ export interface RuntimeOptions {
   tagsTomlPath?: string;
   tagsTemplateVars?: Record<string, string>;
   enableAgentTools?: boolean;
+  nowMs?: () => number;
+  blockIdFactory?: () => string;
 }
 
 export function createRuntime(
@@ -137,7 +139,9 @@ export function createRuntime(
     config,
     container,
     getSQLiteDatabase,
-    allowedAiTags
+    allowedAiTags,
+    nowMs: options.nowMs,
+    blockIdFactory: options.blockIdFactory
   });
   registerRuntimeDependencies({
     config,
@@ -184,8 +188,10 @@ function registerCoreDependencies(input: {
   container: Container;
   getSQLiteDatabase: () => SQLiteDatabase;
   allowedAiTags: string[];
+  nowMs?: () => number;
+  blockIdFactory?: () => string;
 }): void {
-  const { config, container, getSQLiteDatabase, allowedAiTags } = input;
+  const { config, container, getSQLiteDatabase, allowedAiTags, nowMs, blockIdFactory } = input;
 
   container.register("config", () => config);
   container.register("locale", () => config.component.locale as Locale);
@@ -211,7 +217,7 @@ function registerCoreDependencies(input: {
     return new BlockStoreVectorStore(container.resolve("blockStore"));
   });
   container.register("summarizer", () => new HeuristicSummarizer());
-  container.register("embedder", () => new HashEmbedder(256));
+  container.register("embedder", () => new HashEmbedder(256, config.manager.embeddingSeed));
   container.register("chunkStrategy", () => buildChunkStrategy(config));
   container.register("relationExtractor", () => {
     return buildRelationExtractor(config, container.resolve("debugTraceRecorder"));
@@ -315,7 +321,9 @@ function registerCoreDependencies(input: {
       sealProcessor: container.resolve("sealProcessor"),
       contextAssembler: container.resolve("contextAssembler"),
       backtracker: container.resolve("rawBacktracker"),
-      predictor: container.resolve("predictor")
+      predictor: container.resolve("predictor"),
+      nowMs,
+      blockIdFactory
     });
   });
   container.register("provider", () =>

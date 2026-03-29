@@ -7,9 +7,7 @@ export class IntentDecoder {
     blockById: Map<string, MemoryBlock>,
     topK: number
   ): PredictedIntent[] {
-    const ranked = [...transitions.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topK);
+    const ranked = sortTransitionEntries(transitions).slice(0, topK);
 
     return ranked.map(([blockId, confidence]) => {
       const block = blockById.get(blockId);
@@ -20,6 +18,14 @@ export class IntentDecoder {
       };
     });
   }
+}
+
+export function sortTransitionEntries(transitions: Map<string, number>): Array<[string, number]> {
+  return [...transitions.entries()].sort((a, b) => {
+    const byScore = b[1] - a[1];
+    if (byScore !== 0) return byScore;
+    return a[0].localeCompare(b[0]);
+  });
 }
 
 function buildLabel(block: MemoryBlock | undefined): string {

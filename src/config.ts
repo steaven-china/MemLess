@@ -124,8 +124,14 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   predictionTopK: 3,
   predictionWalkDepth: 2,
   predictionActiveThreshold: 0.45,
+  predictionForceActiveTrigger: false,
   predictionTransitionDecay: 0.75,
   predictionBoostWeight: 0.25,
+  predictionDenseBoostMultiplier: 0.054,
+  predictionBoostCap: 0.14,
+  predictionBaseScoreGateMax: 0.14,
+  predictionDenseConfidenceGateMin: 0.5,
+  embeddingSeed: undefined,
   searchAugmentMode: "lazy",
   searchScheduleMinutes: 30,
   searchTopK: 5,
@@ -246,6 +252,8 @@ export function loadConfig(
       "MLEX_PREDICTION_ACTIVE_THRESHOLD",
       DEFAULT_MANAGER_CONFIG.predictionActiveThreshold
     ),
+    predictionForceActiveTrigger:
+      (process.env.MLEX_PREDICTION_FORCE_ACTIVE_TRIGGER ?? "false").toLowerCase() === "true",
     predictionTransitionDecay: parseEnvFloat(
       "MLEX_PREDICTION_DECAY",
       DEFAULT_MANAGER_CONFIG.predictionTransitionDecay
@@ -254,6 +262,23 @@ export function loadConfig(
       "MLEX_PREDICTION_BOOST_WEIGHT",
       DEFAULT_MANAGER_CONFIG.predictionBoostWeight
     ),
+    predictionDenseBoostMultiplier: parseEnvFloat(
+      "MLEX_PREDICTION_DENSE_BOOST_MULTIPLIER",
+      DEFAULT_MANAGER_CONFIG.predictionDenseBoostMultiplier
+    ),
+    predictionBoostCap: parseEnvFloat(
+      "MLEX_PREDICTION_BOOST_CAP",
+      DEFAULT_MANAGER_CONFIG.predictionBoostCap
+    ),
+    predictionBaseScoreGateMax: parseEnvFloat(
+      "MLEX_PREDICTION_BASE_SCORE_GATE_MAX",
+      DEFAULT_MANAGER_CONFIG.predictionBaseScoreGateMax
+    ),
+    predictionDenseConfidenceGateMin: parseEnvFloat(
+      "MLEX_PREDICTION_DENSE_CONFIDENCE_GATE_MIN",
+      DEFAULT_MANAGER_CONFIG.predictionDenseConfidenceGateMin
+    ),
+    embeddingSeed: parseOptionalEnvNumber("MLEX_EMBEDDING_SEED"),
     searchAugmentMode:
       (process.env.MLEX_SEARCH_AUGMENT_MODE as ManagerConfig["searchAugmentMode"]) ??
       DEFAULT_MANAGER_CONFIG.searchAugmentMode,
@@ -417,6 +442,13 @@ function parseEnvFloat(name: string, defaultValue: number): number {
   if (!value) return defaultValue;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
+function parseOptionalEnvNumber(name: string): number | undefined {
+  const value = process.env[name];
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function parseEnvCsv(name: string): string[] {

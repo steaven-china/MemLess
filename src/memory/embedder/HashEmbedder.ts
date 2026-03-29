@@ -2,7 +2,10 @@ import { tokenize } from "../../utils/text.js";
 import type { IEmbedder } from "./IEmbedder.js";
 
 export class HashEmbedder implements IEmbedder {
-  constructor(private readonly dimensions = 256) {}
+  constructor(
+    private readonly dimensions = 256,
+    private readonly seed = 0
+  ) {}
 
   embed(text: string): number[] {
     const vector = new Array(this.dimensions).fill(0);
@@ -20,7 +23,7 @@ export class HashEmbedder implements IEmbedder {
   }
 
   private hash(text: string): number {
-    let hash = 0;
+    let hash = this.seed | 0;
     for (let i = 0; i < text.length; i += 1) {
       hash = (hash << 5) - hash + text.charCodeAt(i);
       hash |= 0;

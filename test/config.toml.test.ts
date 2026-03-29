@@ -169,16 +169,25 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     );
   });
 
-  test("loads agent tool round limit from toml file", async () => {
+  test("loads prediction rerank tuning config from toml file", async () => {
     const filePath = await makeTempPath();
     await writeFile(
       filePath,
-      ["[manager]", "agentMaxToolRounds = 21"].join("\n"),
+      [
+        "[manager]",
+        "predictionDenseBoostMultiplier = 0.031",
+        "predictionBoostCap = 0.16",
+        "predictionBaseScoreGateMax = 0.12",
+        "predictionDenseConfidenceGateMin = 0.55"
+      ].join("\n"),
       "utf8"
     );
 
     const config = loadConfig({}, { userTomlPath: filePath });
-    expect(config.manager.agentMaxToolRounds).toBe(21);
+    expect(config.manager.predictionDenseBoostMultiplier).toBe(0.031);
+    expect(config.manager.predictionBoostCap).toBe(0.16);
+    expect(config.manager.predictionBaseScoreGateMax).toBe(0.12);
+    expect(config.manager.predictionDenseConfidenceGateMin).toBe(0.55);
   });
 
   test("throws on invalid toml syntax", async () => {

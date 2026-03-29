@@ -2,7 +2,7 @@ import type { ManagerConfig, PredictionResult } from "../../types.js";
 import type { IBlockStore } from "../store/IBlockStore.js";
 import type { RelationGraph } from "../RelationGraph.js";
 import type { IGraphEmbedder } from "./GraphEmbedder.js";
-import { IntentDecoder } from "./IntentDecoder.js";
+import { IntentDecoder, sortTransitionEntries } from "./IntentDecoder.js";
 import { WeightedRandomWalk } from "./WeightedRandomWalk.js";
 
 export interface PredictorEngineDeps {
@@ -37,14 +37,15 @@ export class PredictorEngine {
     const weightedVector = buildWeightedVector(transition, graphEmbedding.nodeEmbeddings, graphEmbedding.dimension);
     const blockById = new Map(blocks.map((block) => [block.id, block]));
     const intents = this.decoder.decode(transition, blockById, this.deps.config.predictionTopK);
-    const activeTrigger = (intents[0]?.confidence ?? 0) >= this.deps.config.predictionActiveThreshold;
+    const activeTrigger =
+      this.deps.config.predictionForceActiveTrigger ||
+      (intents[0]?.confidence ?? 0) >= this.deps.config.predictionActiveThreshold;
 
     return {
       vector: weightedVector,
       intents,
       activeTrigger,
-      transitionProbabilities: [...transition.entries()]
-        .sort((a, b) => b[1] - a[1])
+      transitionProbabilities: sortTransitionEntries(transition)
         .slice(0, this.deps.config.predictionTopK)
         .map(([blockId, probability]) => ({ blockId, probability }))
     };

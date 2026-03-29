@@ -190,8 +190,14 @@ function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignNumber(output, "predictionTopK", table.predictionTopK, filePath, `${fieldPath}.predictionTopK`);
   assignNumber(output, "predictionWalkDepth", table.predictionWalkDepth, filePath, `${fieldPath}.predictionWalkDepth`);
   assignNumber(output, "predictionActiveThreshold", table.predictionActiveThreshold, filePath, `${fieldPath}.predictionActiveThreshold`);
+  assignBoolean(output, "predictionForceActiveTrigger", table.predictionForceActiveTrigger, filePath, `${fieldPath}.predictionForceActiveTrigger`);
   assignNumber(output, "predictionTransitionDecay", table.predictionTransitionDecay, filePath, `${fieldPath}.predictionTransitionDecay`);
   assignNumber(output, "predictionBoostWeight", table.predictionBoostWeight, filePath, `${fieldPath}.predictionBoostWeight`);
+  assignNumber(output, "predictionDenseBoostMultiplier", table.predictionDenseBoostMultiplier, filePath, `${fieldPath}.predictionDenseBoostMultiplier`);
+  assignNumber(output, "predictionBoostCap", table.predictionBoostCap, filePath, `${fieldPath}.predictionBoostCap`);
+  assignNumber(output, "predictionBaseScoreGateMax", table.predictionBaseScoreGateMax, filePath, `${fieldPath}.predictionBaseScoreGateMax`);
+  assignNumber(output, "predictionDenseConfidenceGateMin", table.predictionDenseConfidenceGateMin, filePath, `${fieldPath}.predictionDenseConfidenceGateMin`);
+  assignNumber(output, "embeddingSeed", table.embeddingSeed, filePath, `${fieldPath}.embeddingSeed`);
   assignString(output, "searchAugmentMode", table.searchAugmentMode, filePath, `${fieldPath}.searchAugmentMode`);
   assignNumber(output, "searchScheduleMinutes", table.searchScheduleMinutes, filePath, `${fieldPath}.searchScheduleMinutes`);
   assignNumber(output, "searchTopK", table.searchTopK, filePath, `${fieldPath}.searchTopK`);

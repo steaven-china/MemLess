@@ -51,6 +51,15 @@ export interface PredictionResult {
   intents: PredictedIntent[];
   activeTrigger: boolean;
   transitionProbabilities: Array<{ blockId: BlockId; probability: number }>;
+  predictionWeight?: number;
+  rerankShift?: number;
+  deltaRank?: number;
+  baseScore?: number;
+  finalScore?: number;
+  maxScoreGap?: number;
+  maxBoost?: number;
+  preTopScores?: Array<{ blockId: BlockId; score: number }>;
+  postTopScores?: Array<{ blockId: BlockId; score: number }>;
 }
 
 export type ProactiveSignalMode = "inject" | "prefetch" | "none";
@@ -125,8 +134,14 @@ export interface ManagerConfig {
   predictionTopK: number;
   predictionWalkDepth: number;
   predictionActiveThreshold: number;
+  predictionForceActiveTrigger: boolean;
   predictionTransitionDecay: number;
   predictionBoostWeight: number;
+  predictionDenseBoostMultiplier: number;
+  predictionBoostCap: number;
+  predictionBaseScoreGateMax: number;
+  predictionDenseConfidenceGateMin: number;
+  embeddingSeed?: number;
   searchAugmentMode: SearchAugmentMode;
   searchScheduleMinutes: number;
   searchTopK: number;

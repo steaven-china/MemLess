@@ -60,11 +60,6 @@ export class HybridRetriever {
       }
     }
 
-    for (const predicted of input.predictedIntents ?? []) {
-      const base = scores.get(predicted.blockId) ?? 0;
-      scores.set(predicted.blockId, base + predicted.confidence * this.config.predictionBoostWeight);
-    }
-
     return {
       scores,
       semanticSeedIds
