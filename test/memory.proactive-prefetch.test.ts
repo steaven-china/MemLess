@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createRuntime, type Runtime } from "../src/container.js";
-import type { PredictionResult } from "../src/types.js";
+import type { PredictedIntent, PredictionResult } from "../src/types.js";
 import { createId } from "../src/utils/id.js";
 
 type InternalManager = {
@@ -12,7 +12,12 @@ type InternalManager = {
       list(): Promise<Array<{ id: string }>>;
     };
     hybridRetriever: {
-      retrieve(input: unknown): Promise<{ scores: Map<string, number>; semanticSeedIds: string[] }>;
+      retrieve(input: unknown): Promise<{
+        scores: Map<string, number>;
+        semanticSeedIds: string[];
+        graphHitIds?: string[];
+        graphHitConfidenceAvg?: number;
+      }>;
     };
     predictor: { predict(seedIds: string[]): Promise<PredictionResult | undefined> };
   };
@@ -21,6 +26,9 @@ type InternalManager = {
   prevMessageUtc?: number;
   lastTriggerUtc: number;
   prefetchedIntents: Map<string, { confidence: number; createdAtUtc: number }>;
+  lowEntropyStreak: number;
+  lastLowEntropySoftUtc: number;
+  lastLowEntropyHardUtc: number;
 };
 
 describe("Proactive prefetch path", () => {

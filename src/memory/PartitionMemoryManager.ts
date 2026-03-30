@@ -32,6 +32,10 @@ import type { HybridRetriever } from "./output/HybridRetriever.js";
 import { shouldProactiveRetrieve } from "./prediction/ProactiveRetrievePolicy.js";
 import { proactivePolicy } from "./prediction/ProactiveTimingPolicy.js";
 import {
+  decideRelationLowInfoHighEntropy,
+  type RelationTriggerDecision
+} from "./prediction/RelationTriggerPolicy.js";
+import {
   applyPrefetchBoost,
   clearPrefetchedIntents,
   stagePrefetchedIntents
@@ -55,6 +59,42 @@ export interface PartitionMemoryManagerDeps {
   blockIdFactory?: () => string;
   nowMs?: () => number;
   config: ManagerConfig;
+}
+
+interface RetrievalEntropyInput {
+  topBlockIds: string[];
+  graphHitIds: string[];
+  graphHitConfidenceAvg: number;
+  predictionWeight: number;
+  nowUtc: number;
+}
+
+interface RetrievalEntropySnapshot {
+  topBlockIds: string[];
+  topBlockIdSet: Set<string>;
+  top1BlockId?: string;
+  graphHitIds: string[];
+  graphHitIdSet: Set<string>;
+  graphCoverage: number;
+  relationConfidenceAvg: number;
+  relationNewRate: number;
+  predictionWeight: number;
+  retrievalOverlap: number;
+  noveltyRate: number;
+  repeatRate: number;
+  timestampUtc: number;
+}
+
+interface RelationTriggerSnapshot {
+  totalConditionalInfo: number;
+  conditionalEntropy: number;
+  matched: boolean;
+  timestampUtc: number;
+}
+
+interface LowEntropyDecision {
+  level: "none" | "soft" | "hard";
+  reason: string;
 }
 
 export class PartitionMemoryManager implements IMemoryManager {
@@ -81,6 +121,13 @@ export class PartitionMemoryManager implements IMemoryManager {
   >();
   private readonly hydrationPromise: Promise<void>;
   private proactiveTickRunning = false;
+  private readonly retrievalEntropyHistory: RetrievalEntropySnapshot[] = [];
+  private readonly relationTriggerWindow: RelationTriggerSnapshot[] = [];
+  private lowEntropyStreak = 0;
+  private relationTriggerStreak = 0;
+  private lastLowEntropySoftUtc = 0;
+  private lastLowEntropyHardUtc = 0;
+  private relationTriggerLastHardUtc = 0;
 
   constructor(private readonly deps: PartitionMemoryManagerDeps) {
     this.nowMs = deps.nowMs ?? (() => Date.now());
@@ -98,6 +145,18 @@ export class PartitionMemoryManager implements IMemoryManager {
         maxNeighbors: Math.max(1, this.deps.config.semanticTopK),
         relationStore: this.deps.relationStore,
         relationTimestampResolver: (block) => this.nextRelationTimestampMs(block.endTime),
+        minConfidence: this.deps.config.relationMinConfidence,
+        allowedTypes: Object.values(RelationType),
+        relationTypeAliases: {
+          cause: RelationType.CAUSES,
+          causes: RelationType.CAUSES,
+          follows: RelationType.FOLLOWS,
+          follow: RelationType.FOLLOWS,
+          parent: RelationType.PARENT_TASK,
+          child: RelationType.CHILD_TASK,
+          alternative: RelationType.ALTERNATIVE,
+          context: RelationType.CONTEXT
+        },
         onError: (error) => {
           const message = error instanceof Error ? error.message : String(error);
           console.warn(`[relation-queue] processing failed: ${message}`);
@@ -244,6 +303,18 @@ export class PartitionMemoryManager implements IMemoryManager {
     const blockIds = sortScoreEntries(scores)
       .slice(0, this.deps.config.finalTopK)
       .map(([blockId]) => blockId);
+
+    this.applyLowEntropySignalOverride(
+      {
+        topBlockIds: blockIds,
+        graphHitIds: initial.graphHitIds ?? [],
+        graphHitConfidenceAvg: initial.graphHitConfidenceAvg ?? 0,
+        predictionWeight: this.lastPrediction?.predictionWeight ?? 0,
+        nowUtc: this.nowUtcSeconds()
+      },
+      triggerSource,
+      prediction?.intents ?? []
+    );
 
     const blocks = await this.deps.blockStore.getMany(blockIds);
     const byId = new Map(blocks.map((block) => [block.id, block]));
@@ -588,6 +659,210 @@ export class PartitionMemoryManager implements IMemoryManager {
     };
   }
 
+  private applyLowEntropySignalOverride(
+    input: RetrievalEntropyInput,
+    triggerSource: ProactiveTriggerSource,
+    intents: PredictedIntent[]
+  ): void {
+    const relationDecision = this.decideRelationTriggerLevel(
+      intents.map((intent) => intent.confidence),
+      input.nowUtc
+    );
+    if (relationDecision.level !== "none") {
+      this.lastProactiveSignal = {
+        allowWakeup: true,
+        mode: "inject",
+        intents,
+        reason: relationDecision.reason,
+        evidenceNeedHint: relationDecision.level === "hard" ? "search_required" : "search_optional",
+        triggerSource,
+        timerEnabled: this.deps.config.proactiveTimerEnabled,
+        timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+      };
+      return;
+    }
+
+    if (!this.deps.config.lowEntropyTriggerEnabled) return;
+    const snapshot = this.captureRetrievalEntropySnapshot(input);
+    const decision = this.decideLowEntropyLevel(snapshot, input.nowUtc);
+    if (decision.level === "none") return;
+
+    this.lastProactiveSignal = {
+      allowWakeup: true,
+      mode: "inject",
+      intents,
+      reason: decision.reason,
+      evidenceNeedHint: decision.level === "hard" ? "search_required" : "search_optional",
+      triggerSource,
+      timerEnabled: this.deps.config.proactiveTimerEnabled,
+      timerIntervalSeconds: this.deps.config.proactiveTimerIntervalSeconds
+    };
+  }
+
+  private decideRelationTriggerLevel(
+    relationProbabilities: number[],
+    nowUtc: number
+  ): LowEntropyDecision {
+    if (!this.deps.config.relationTriggerEnabled) {
+      this.relationTriggerStreak = 0;
+      return { level: "none", reason: "relation_trigger_disabled" };
+    }
+
+    const decision: RelationTriggerDecision = decideRelationLowInfoHighEntropy({
+      relationProbabilities,
+      thresholds: {
+        lowInfoThreshold: this.deps.config.relationTriggerLowInfoThreshold,
+        highEntropyThreshold: this.deps.config.relationTriggerHighEntropyThreshold,
+        shortChainMaxSize: this.deps.config.relationTriggerShortChainMaxSize
+      }
+    });
+
+    const snapshot: RelationTriggerSnapshot = {
+      totalConditionalInfo: decision.totalConditionalInfo,
+      conditionalEntropy: decision.conditionalEntropy,
+      matched: decision.matched,
+      timestampUtc: nowUtc
+    };
+    this.relationTriggerWindow.push(snapshot);
+    const windowSize = Math.max(1, this.deps.config.relationTriggerWindowSize);
+    if (this.relationTriggerWindow.length > windowSize) {
+      this.relationTriggerWindow.splice(0, this.relationTriggerWindow.length - windowSize);
+    }
+
+    if (!decision.matched) {
+      this.relationTriggerStreak = 0;
+      return { level: "none", reason: "relation_direction_guard_failed" };
+    }
+
+    this.relationTriggerStreak += 1;
+    const required = Math.max(1, this.deps.config.relationTriggerStreakRequired);
+    if (this.relationTriggerStreak >= required) {
+      const cooldown = Math.max(0, this.deps.config.relationTriggerCooldownSeconds);
+      if (nowUtc - this.relationTriggerLastHardUtc < cooldown) {
+        return { level: "none", reason: "relation_cooldown_blocked" };
+      }
+      this.relationTriggerLastHardUtc = nowUtc;
+      return {
+        level: "hard",
+        reason: decision.matchedByShortChain
+          ? "relation_short_chain_hard_triggered"
+          : "relation_hard_triggered"
+      };
+    }
+
+    return {
+      level: "soft",
+      reason: decision.matchedByShortChain
+        ? "relation_short_chain_soft_triggered"
+        : "relation_soft_triggered"
+    };
+  }
+
+  private captureRetrievalEntropySnapshot(input: RetrievalEntropyInput): RetrievalEntropySnapshot {
+    const windowSize = Math.max(1, this.deps.config.lowEntropyWindowSize);
+    const history = this.retrievalEntropyHistory.slice(-(windowSize - 1));
+    const currentTopSet = new Set(input.topBlockIds);
+    const currentGraphSet = new Set(input.graphHitIds);
+    const previousTopUnion = new Set<string>();
+    const previousGraphUnion = new Set<string>();
+
+    for (const item of history) {
+      for (const blockId of item.topBlockIdSet) {
+        previousTopUnion.add(blockId);
+      }
+      for (const graphId of item.graphHitIdSet) {
+        previousGraphUnion.add(graphId);
+      }
+    }
+
+    const retrievalOverlap = jaccardSimilarity(currentTopSet, previousTopUnion);
+    const noveltyRate = 1 - retrievalOverlap;
+    const hasGraphSignals = input.graphHitIds.length > 0;
+    const graphCoverage = hasGraphSignals
+      ? safeRatio(countIntersect(currentTopSet, currentGraphSet), currentTopSet.size)
+      : 1;
+    const relationConfidenceAvg = hasGraphSignals ? clamp01(input.graphHitConfidenceAvg) : 1;
+    const relationNewCount = input.graphHitIds.filter((blockId) => !previousGraphUnion.has(blockId)).length;
+    const relationNewRate = hasGraphSignals ? safeRatio(relationNewCount, input.graphHitIds.length) : 1;
+
+    const previousTop1 = history
+      .map((item) => item.top1BlockId)
+      .filter((item): item is string => Boolean(item));
+    const currentTop1 = input.topBlockIds[0];
+    const repeatRate =
+      currentTop1 && previousTop1.length > 0
+        ? safeRatio(previousTop1.filter((blockId) => blockId === currentTop1).length, previousTop1.length)
+        : 0;
+
+    const predictionWeights = history.map((item) => item.predictionWeight);
+    predictionWeights.push(input.predictionWeight);
+    const avgPredictionWeight = average(predictionWeights);
+
+    const snapshot: RetrievalEntropySnapshot = {
+      topBlockIds: input.topBlockIds,
+      topBlockIdSet: currentTopSet,
+      top1BlockId: currentTop1,
+      graphHitIds: input.graphHitIds,
+      graphHitIdSet: currentGraphSet,
+      graphCoverage,
+      relationConfidenceAvg,
+      relationNewRate,
+      predictionWeight: avgPredictionWeight,
+      retrievalOverlap,
+      noveltyRate,
+      repeatRate,
+      timestampUtc: input.nowUtc
+    };
+
+    this.retrievalEntropyHistory.push(snapshot);
+    if (this.retrievalEntropyHistory.length > windowSize) {
+      this.retrievalEntropyHistory.splice(0, this.retrievalEntropyHistory.length - windowSize);
+    }
+
+    return snapshot;
+  }
+
+  private decideLowEntropyLevel(snapshot: RetrievalEntropySnapshot, nowUtc: number): LowEntropyDecision {
+    const config = this.deps.config;
+    const lowSignals = [
+      snapshot.noveltyRate < config.lowEntropyNoveltyMax,
+      snapshot.retrievalOverlap > config.lowEntropyRetrievalOverlapMin,
+      snapshot.predictionWeight < config.lowEntropyPredictionWeightMax,
+      snapshot.relationNewRate < config.lowEntropyRelationNewRateMax,
+      snapshot.graphCoverage < config.lowEntropyGraphCoverageMax,
+      snapshot.relationConfidenceAvg < config.lowEntropyRelationConfidenceMax
+    ].filter(Boolean).length;
+
+    if (lowSignals < Math.max(1, config.lowEntropyMinSignals)) {
+      this.lowEntropyStreak = 0;
+      return { level: "none", reason: "low_entropy_not_met" };
+    }
+
+    this.lowEntropyStreak += 1;
+
+    const hardK = Math.max(1, config.lowEntropyHardStreakK);
+    const softK = Math.max(1, config.lowEntropySoftStreakK);
+
+    if (this.lowEntropyStreak >= hardK) {
+      if (nowUtc - this.lastLowEntropyHardUtc < Math.max(0, config.lowEntropyHardCooldownSeconds)) {
+        return { level: "none", reason: "low_entropy_hard_cooldown_blocked" };
+      }
+      this.lastLowEntropyHardUtc = nowUtc;
+      this.lastLowEntropySoftUtc = nowUtc;
+      return { level: "hard", reason: "low_entropy_hard" };
+    }
+
+    if (this.lowEntropyStreak >= softK) {
+      if (nowUtc - this.lastLowEntropySoftUtc < Math.max(0, config.lowEntropySoftCooldownSeconds)) {
+        return { level: "none", reason: "low_entropy_soft_cooldown_blocked" };
+      }
+      this.lastLowEntropySoftUtc = nowUtc;
+      return { level: "soft", reason: "low_entropy_soft" };
+    }
+
+    return { level: "none", reason: "low_entropy_streak_accumulating" };
+  }
+
   private stagePrefetch(intents: PredictedIntent[], nowUtc: number): void {
     stagePrefetchedIntents(this.prefetchedIntents, intents, nowUtc);
     this.lastTriggerUtc = nowUtc;
@@ -777,6 +1052,36 @@ function sortScoreEntries(scores: Map<string, number>): Array<[string, number]> 
   });
 }
 
+function countIntersect(left: Set<string>, right: Set<string>): number {
+  let count = 0;
+  for (const item of left) {
+    if (right.has(item)) count += 1;
+  }
+  return count;
+}
+
+function jaccardSimilarity(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 && right.size === 0) return 0;
+  const union = new Set<string>([...left, ...right]);
+  if (union.size === 0) return 0;
+  return countIntersect(left, right) / union.size;
+}
+
+function safeRatio(numerator: number, denominator: number): number {
+  if (denominator <= 0) return 0;
+  return numerator / denominator;
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
 function isKeywordSparseQuery(query: string, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
   const normalizedTokens = new Set(tokenize(query));
@@ -803,7 +1108,7 @@ const PREFETCH_TTL_SECONDS = 30 * 60;
 const PREFETCH_BOOST_RATIO = 0.6;
 const hasLoggedPrePredictionScores = { value: false };
 const QUERY_KEYWORD_DENSE_RATIO = 0.5;
-const PREDICTION_BOOST_SCALE = 12;
+const PREDICTION_BOOST_SCALE = 14;
 const PREDICTION_BOOST_FLOOR = 0;
 const DEFAULT_BOOST_MULTIPLIER = 4;
 const KEYWORD_SPARSE_BOOST_MULTIPLIER = 8;

@@ -8,6 +8,12 @@ export interface AsyncRelationQueueOptions {
   maxNeighbors: number;
   relationStore?: IRelationStore;
   relationTimestampResolver?: (block: MemoryBlock, relation: ExtractedRelation) => number;
+  minConfidence?: number;
+  allowedTypes?: ReadonlyArray<ExtractedRelation["type"]>;
+  relationTypeAliases?: Partial<Record<string, ExtractedRelation["type"]>>;
+  candidatePromoteScore?: number;
+  candidateDecay?: number;
+  conflictDetectionEnabled?: boolean;
   onError?: (error: unknown) => void;
 }
 
@@ -51,7 +57,8 @@ export class AsyncRelationQueue {
         try {
           const neighbors = await this.getNeighbors(block, this.options.maxNeighbors);
           const relations = await this.extractor.extract(block, neighbors);
-          for (const relation of relations) {
+          const normalizedRelations = this.normalizeRelations(relations);
+          for (const relation of normalizedRelations) {
             this.graph.addRelation(relation.src, relation.dst, relation.type);
             const timestamp =
               this.options.relationTimestampResolver?.(block, relation) ?? Date.now();
@@ -91,5 +98,44 @@ export class AsyncRelationQueue {
     for (const resolve of resolvers) {
       resolve();
     }
+  }
+
+  private normalizeRelations(relations: ExtractedRelation[]): ExtractedRelation[] {
+    const minConfidence = Math.max(0, Math.min(1, this.options.minConfidence ?? 0));
+    const allowedTypes = this.options.allowedTypes
+      ? new Set(this.options.allowedTypes)
+      : undefined;
+    const aliases = this.options.relationTypeAliases ?? {};
+    const table = new Map<string, ExtractedRelation>();
+
+    for (const relation of relations) {
+      const normalizedType = this.normalizeType(String(relation.type), aliases);
+      if (!normalizedType) continue;
+      if (allowedTypes && !allowedTypes.has(normalizedType)) continue;
+
+      const confidence = Math.max(0, Math.min(1, relation.confidence));
+      if (confidence < minConfidence) continue;
+
+      const normalized: ExtractedRelation = {
+        ...relation,
+        type: normalizedType,
+        confidence
+      };
+      const key = `${normalized.src}|${normalized.dst}|${normalized.type}`;
+      const existing = table.get(key);
+      if (!existing || normalized.confidence > existing.confidence) {
+        table.set(key, normalized);
+      }
+    }
+
+    return [...table.values()];
+  }
+
+  private normalizeType(
+    type: string,
+    aliases: Partial<Record<string, ExtractedRelation["type"]>>
+  ): ExtractedRelation["type"] | undefined {
+    const canonical = aliases[type] ?? aliases[type.toUpperCase()] ?? (type as ExtractedRelation["type"]);
+    return canonical;
   }
 }

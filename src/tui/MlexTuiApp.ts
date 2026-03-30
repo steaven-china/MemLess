@@ -17,6 +17,9 @@ const DEFAULT_TRACE_LIMIT = 200;
 const MAX_TRACE_LIMIT = 5_000;
 const DEFAULT_LIST_LIMIT = 200;
 const DEFAULT_READ_MAX_BYTES = 64 * 1024;
+const INTERRUPT_RETAIN_SENTENCE_LIMIT = 3;
+const INTERRUPT_RETAIN_FALLBACK_CHARS = 180;
+const INTERRUPT_RETAIN_MAX_CHARS = 400;
 
 type ConversationRole = "user" | "assistant" | "system";
 type AgentMode = "chat" | "code" | "plan";
@@ -51,6 +54,13 @@ interface StreamRequestState {
   assistantIndex: number;
   partialText: string;
   interrupted: boolean;
+}
+
+interface InterruptedContextState {
+  sessionId: string;
+  originalQuestion: string;
+  partialText: string;
+  at: number;
 }
 
 const THEME = {
@@ -95,6 +105,7 @@ export class MlexTuiApp {
   private scheduleResendAfterInterrupt = false;
   private lastUserPrompt?: string;
   private lastInterruptedPrompt?: string;
+  private pendingInterruptedContext?: InterruptedContextState;
   private donePromise?: Promise<void>;
   private doneResolve?: () => void;
   private busy = false;
@@ -602,6 +613,24 @@ export class MlexTuiApp {
   }
 
   private async resendLastPrompt(): Promise<void> {
+    const session = this.getActiveSession();
+    const pending =
+      this.pendingInterruptedContext && this.pendingInterruptedContext.sessionId === session.id
+        ? this.pendingInterruptedContext
+        : undefined;
+    if (pending) {
+      this.pushActivity(
+        "info",
+        this.options.i18n.t("tui.activity.resending_prompt", {
+          count: pending.originalQuestion.length
+        })
+      );
+      this.addSystemLine(this.options.i18n.t("tui.system.resend"));
+      this.setStatus(this.options.i18n.t("tui.status.resending"));
+      await this.handleMessage("请从被打断处继续");
+      return;
+    }
+
     const prompt = this.lastInterruptedPrompt ?? this.lastUserPrompt;
     if (!prompt) {
       this.addSystemLine(this.options.i18n.t("tui.system.no_resend"));
@@ -742,14 +771,25 @@ export class MlexTuiApp {
     }
   }
 
-  private async handleMessage(input: string): Promise<void> {
+  private async handleMessage(input: string, displayInput = input): Promise<void> {
+    const session = this.getActiveSession();
+    const pending =
+      this.pendingInterruptedContext && this.pendingInterruptedContext.sessionId === session.id
+        ? this.pendingInterruptedContext
+        : undefined;
+    const requestInput = pending
+      ? composeInterruptResumePrompt(pending.originalQuestion, pending.partialText, input)
+      : input;
+    if (pending) {
+      this.pendingInterruptedContext = undefined;
+    }
+
     this.lastUserPrompt = input;
-    this.addUserLine(input);
-    this.pushActivity("info", this.options.i18n.t("tui.activity.user_prompt", { count: input.length }));
+    this.addUserLine(displayInput);
+    this.pushActivity("info", this.options.i18n.t("tui.activity.user_prompt", { count: displayInput.length }));
 
     if (this.streamEnabled) {
       this.setStatus(this.options.i18n.t("tui.status.streaming"));
-      const session = this.getActiveSession();
       const requestId = ++this.streamRequestCounter;
       const assistantIndex = this.appendConversation("assistant", "", true);
       const stream: StreamRequestState = {
@@ -767,7 +807,7 @@ export class MlexTuiApp {
 
       try {
         const response = await this.options.runtime.agent.respondStream(
-          input,
+          requestInput,
           (token) => {
             if (!this.isActiveStream(requestId)) return;
             if (stream.controller.signal.aborted || stream.interrupted) return;
@@ -810,6 +850,12 @@ export class MlexTuiApp {
         const interruptedText = formatInterruptedAssistantText(stream.partialText, this.options.i18n);
         this.updateConversation(assistantIndex, interruptedText, false);
         this.lastInterruptedPrompt = input;
+        this.pendingInterruptedContext = {
+          sessionId: stream.sessionId,
+          originalQuestion: stream.userInput,
+          partialText: stream.partialText,
+          at: Date.now()
+        };
         this.pushActivity("warn", this.options.i18n.t("tui.activity.response_interrupted"));
         this.setInspector(
           this.options.i18n.t("tui.inspector.interrupted_title"),
@@ -843,7 +889,7 @@ export class MlexTuiApp {
     }
 
     this.setStatus(this.options.i18n.t("tui.status.thinking"));
-    const response = await this.options.runtime.agent.respond(input);
+    const response = await this.options.runtime.agent.respond(requestInput);
     this.addAgentLine(response.text);
     if (response.proactiveText) {
       this.addAgentLine(response.proactiveText);
@@ -1093,6 +1139,48 @@ function formatInterruptedAssistantText(content: string, i18n: I18n): string {
     return i18n.t("tui.placeholder.interrupted");
   }
   return `${trimmed}\n\n${i18n.t("tui.placeholder.interrupted_suffix")}`;
+}
+
+export function composeInterruptResumePrompt(
+  previousQuestion: string,
+  partialAssistantText: string,
+  newQuestion: string
+): string {
+  const retainedPrefix = retainLeadingSentences(partialAssistantText);
+  return [
+    "你正在继续一次被打断的对话。",
+    "[打断前用户问题]",
+    previousQuestion.trim() || "(空)",
+    "",
+    "[已输出但被打断的前文（节选）]",
+    retainedPrefix || "(无)",
+    "",
+    "[用户打断后新输入]",
+    newQuestion.trim() || "(空)",
+    "",
+    "请遵循：优先延续原回答；若新输入要求转向，先衔接一句再转答；避免重复已输出内容。"
+  ].join("\n");
+}
+
+export function retainLeadingSentences(content: string): string {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return "";
+
+  const compact = normalized.replace(/\n{2,}/g, "\n");
+  const sentenceMatches = compact.match(/[^。！？!?\n]+(?:[。！？!?]|\n|$)/g) ?? [];
+  const sentences = sentenceMatches
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length > 0)
+    .slice(0, INTERRUPT_RETAIN_SENTENCE_LIMIT);
+
+  const fromSentences = sentences.join(" ").trim();
+  const fallback = compact.slice(0, INTERRUPT_RETAIN_FALLBACK_CHARS).trim();
+  const hasDelimiter = /[。！？!?\n]/.test(compact);
+  const selected = !hasDelimiter && fromSentences.length > INTERRUPT_RETAIN_FALLBACK_CHARS
+    ? fallback
+    : fromSentences || fallback;
+  if (!selected) return "";
+  return selected.slice(0, INTERRUPT_RETAIN_MAX_CHARS).trim();
 }
 
 function formatFileList(entries: ReadonlyFileEntry[], pathInput: string, i18n: I18n): string {

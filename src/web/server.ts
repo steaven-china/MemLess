@@ -12,6 +12,7 @@ import type { IRawEventStore } from "../memory/raw/IRawEventStore.js";
 import type { IRelationStore } from "../memory/relation/IRelationStore.js";
 import type { IBlockStore } from "../memory/store/IBlockStore.js";
 import { renderAppHtml } from "./renderAppHtml.js";
+import { createId } from "../utils/id.js";
 
 export interface WebServerOptions {
   host?: string;
@@ -29,6 +30,8 @@ export interface StartedWebServer {
 
 interface ChatRequestBody {
   message?: string;
+  sessionId?: string;
+  requestId?: string;
 }
 
 interface LastContextState {
@@ -38,20 +41,29 @@ interface LastContextState {
 }
 
 interface DebugState {
-  lastContext?: LastContextState;
+  lastContextBySession: Map<string, LastContextState>;
 }
 
 export async function startWebServer(options: WebServerOptions = {}): Promise<StartedWebServer> {
-  const runtime = createRuntime(options.runtimeOverrides ?? {}, options.runtimeOptions);
+  const defaultRuntime = createRuntime(options.runtimeOverrides ?? {}, options.runtimeOptions);
   const fileService = new ReadonlyFileService({ rootPath: process.cwd() });
-  const debugState: DebugState = {};
+  const debugState: DebugState = { lastContextBySession: new Map<string, LastContextState>() };
+  const runtimesBySession = new Map<string, ReturnType<typeof createRuntime>>([["default", defaultRuntime]]);
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 8787;
 
+  const resolveRuntimeForSession = (sessionId: string): ReturnType<typeof createRuntime> => {
+    const existing = runtimesBySession.get(sessionId);
+    if (existing) return existing;
+    const created = createRuntime(options.runtimeOverrides ?? {}, options.runtimeOptions);
+    runtimesBySession.set(sessionId, created);
+    return created;
+  };
+
   const server = createServer(async (req, res) => {
-    const i18n = resolveRequestI18n(req, runtime.config.component.locale);
+    const i18n = resolveRequestI18n(req, defaultRuntime.config.component.locale);
     try {
-      await routeRequest(req, res, runtime, debugState, fileService, i18n);
+      await routeRequest(req, res, defaultRuntime, resolveRuntimeForSession, debugState, fileService, i18n);
     } catch (error) {
       if (error instanceof HttpError) {
         sendJson(res, error.statusCode, { error: error.message });
@@ -72,7 +84,12 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
     url: `http://${host}:${address.port}`,
     close: async () => {
       await closeServer(server);
-      await runtime.close();
+      const closed = new Set<ReturnType<typeof createRuntime>>();
+      for (const runtime of runtimesBySession.values()) {
+        if (closed.has(runtime)) continue;
+        closed.add(runtime);
+        await runtime.close();
+      }
     }
   };
 }
@@ -80,16 +97,17 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
 async function routeRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  runtime: ReturnType<typeof createRuntime>,
+  defaultRuntime: ReturnType<typeof createRuntime>,
+  resolveRuntimeForSession: (sessionId: string) => ReturnType<typeof createRuntime>,
   debugState: DebugState,
   fileService: ReadonlyFileService,
   i18n: I18n
 ): Promise<void> {
-  const bodyLimit = resolveBodyLimit(runtime.config.component.webRequestBodyMaxBytes);
-  const adminToken = normalizeAdminToken(runtime.config.component.webAdminToken);
-  const debugApiEnabled = runtime.config.component.webDebugApiEnabled;
-  const fileApiEnabled = runtime.config.component.webFileApiEnabled;
-  const exposeRawContext = runtime.config.component.webExposeRawContext;
+  const bodyLimit = resolveBodyLimit(defaultRuntime.config.component.webRequestBodyMaxBytes);
+  const adminToken = normalizeAdminToken(defaultRuntime.config.component.webAdminToken);
+  const debugApiEnabled = defaultRuntime.config.component.webDebugApiEnabled;
+  const fileApiEnabled = defaultRuntime.config.component.webFileApiEnabled;
+  const exposeRawContext = defaultRuntime.config.component.webExposeRawContext;
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
   const pathname = url.pathname;
@@ -110,8 +128,8 @@ async function routeRequest(
       fileApiEnabled,
       rawContextEnabled: exposeRawContext,
       adminTokenRequired: Boolean(adminToken),
-      debugTraceEnabled: runtime.config.component.debugTraceEnabled,
-      debugTraceMaxEntries: runtime.config.component.debugTraceMaxEntries
+      debugTraceEnabled: defaultRuntime.config.component.debugTraceEnabled,
+      debugTraceMaxEntries: defaultRuntime.config.component.debugTraceMaxEntries
     });
     return;
   }
@@ -123,14 +141,20 @@ async function routeRequest(
       sendJson(res, 400, { error: i18n.t("web.api.error.message_required") });
       return;
     }
-    const result = await runtime.agent.respond(message);
-    debugState.lastContext = {
+    const sessionId = normalizeSessionId(body.sessionId);
+    const requestId = normalizeRequestId(body.requestId);
+    const runtime = resolveRuntimeForSession(sessionId);
+    const signal = createRequestAbortSignal(req, res);
+    const result = await runtime.agent.respond(message, { signal });
+    debugState.lastContextBySession.set(sessionId, {
       query: message,
       at: Date.now(),
       context: result.context
-    };
+    });
     const latestReadFilePath = extractLatestReadonlyReadPath(result.context);
     const payload: Record<string, unknown> = {
+      requestId,
+      sessionId,
       reply: result.text,
       proactiveReply: result.proactiveText ?? null,
       context: result.context.formatted,
@@ -153,6 +177,11 @@ async function routeRequest(
       return;
     }
 
+    const sessionId = normalizeSessionId(body.sessionId);
+    const requestId = normalizeRequestId(body.requestId);
+    const runtime = resolveRuntimeForSession(sessionId);
+    const signal = createRequestAbortSignal(req, res);
+
     res.statusCode = 200;
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
@@ -160,16 +189,23 @@ async function routeRequest(
     res.setHeader("X-Accel-Buffering", "no");
 
     try {
-      const result = await runtime.agent.respondStream(message, (token) => {
-        sendSseEvent(res, "token", { token });
-      });
-      debugState.lastContext = {
+      const result = await runtime.agent.respondStream(
+        message,
+        (token) => {
+          if (signal.aborted || res.writableEnded) return;
+          sendSseEvent(res, "token", { token, requestId, sessionId });
+        },
+        { signal }
+      );
+      debugState.lastContextBySession.set(sessionId, {
         query: message,
         at: Date.now(),
         context: result.context
-      };
+      });
       const latestReadFilePath = extractLatestReadonlyReadPath(result.context);
       const donePayload: Record<string, unknown> = {
+        requestId,
+        sessionId,
         reply: result.text,
         proactiveReply: result.proactiveText ?? null,
         context: result.context.formatted,
@@ -180,35 +216,48 @@ async function routeRequest(
       if (exposeRawContext) {
         donePayload.rawContext = result.context;
       }
-      sendSseEvent(res, "done", donePayload);
-      res.end();
+      if (!res.writableEnded) {
+        sendSseEvent(res, "done", donePayload);
+        res.end();
+      }
     } catch (error) {
-      sendSseEvent(res, "error", {
-        error: error instanceof Error ? error.message : i18n.t("web.error.stream_unknown")
-      });
-      res.end();
+      if (!res.writableEnded) {
+        sendSseEvent(res, "error", {
+          requestId,
+          sessionId,
+          error: error instanceof Error ? error.message : i18n.t("web.error.stream_unknown")
+        });
+        res.end();
+      }
     }
     return;
   }
 
   if (method === "POST" && pathname === "/api/seal") {
+    const sessionId = normalizeSessionId(url.searchParams.get("sessionId") ?? undefined);
+    const runtime = resolveRuntimeForSession(sessionId);
     await runtime.agent.sealMemory();
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, sessionId });
     return;
   }
 
   if (method === "GET" && pathname === "/api/debug/database") {
     requireFeatureEnabled(debugApiEnabled, i18n);
     requireAdminAuthorization(req, adminToken, i18n);
-    const snapshot = await buildDebugDatabaseSnapshot(runtime, debugState.lastContext);
-    sendJson(res, 200, snapshot);
+    const sessionId = normalizeSessionId(url.searchParams.get("sessionId") ?? undefined);
+    const runtime = resolveRuntimeForSession(sessionId);
+    const snapshot = await buildDebugDatabaseSnapshot(runtime, debugState.lastContextBySession.get(sessionId));
+    sendJson(res, 200, {
+      sessionId,
+      ...snapshot
+    });
     return;
   }
 
   if (method === "GET" && pathname === "/api/debug/traces") {
     requireFeatureEnabled(debugApiEnabled, i18n);
     requireAdminAuthorization(req, adminToken, i18n);
-    const traceRecorder = runtime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
+    const traceRecorder = defaultRuntime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
     const limit = parsePositiveInt(url.searchParams.get("limit"), 500);
     sendJson(res, 200, {
       total: traceRecorder.size(),
@@ -220,7 +269,7 @@ async function routeRequest(
   if (method === "POST" && pathname === "/api/debug/traces/clear") {
     requireFeatureEnabled(debugApiEnabled, i18n);
     requireAdminAuthorization(req, adminToken, i18n);
-    const traceRecorder = runtime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
+    const traceRecorder = defaultRuntime.container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
     traceRecorder.clear();
     sendJson(res, 200, { ok: true });
     return;
@@ -234,12 +283,17 @@ async function routeRequest(
       sendJson(res, 400, { error: i18n.t("web.api.error.id_required") });
       return;
     }
+    const sessionId = normalizeSessionId(url.searchParams.get("sessionId") ?? undefined);
+    const runtime = resolveRuntimeForSession(sessionId);
     const detail = await buildDebugBlockDetail(runtime, blockId);
     if (!detail) {
       sendJson(res, 404, { error: i18n.t("web.api.error.block_not_found") });
       return;
     }
-    sendJson(res, 200, detail);
+    sendJson(res, 200, {
+      sessionId,
+      ...detail
+    });
     return;
   }
 
@@ -508,6 +562,31 @@ function normalizeUserMessage(message: string | undefined): string | undefined {
   if (typeof message !== "string") return undefined;
   const normalized = message.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeSessionId(sessionId: string | undefined): string {
+  if (typeof sessionId !== "string") return "default";
+  const normalized = sessionId.trim();
+  return normalized.length > 0 ? normalized : "default";
+}
+
+function normalizeRequestId(requestId: string | undefined): string {
+  if (typeof requestId !== "string") return createId("req");
+  const normalized = requestId.trim();
+  return normalized.length > 0 ? normalized : createId("req");
+}
+
+function createRequestAbortSignal(req: IncomingMessage, res: ServerResponse): AbortSignal {
+  const controller = new AbortController();
+  const abort = (): void => {
+    if (controller.signal.aborted) return;
+    controller.abort();
+  };
+  req.once("aborted", abort);
+  req.once("close", abort);
+  res.once("close", abort);
+  res.once("finish", abort);
+  return controller.signal;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {

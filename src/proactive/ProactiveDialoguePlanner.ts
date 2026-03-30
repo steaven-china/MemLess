@@ -59,14 +59,21 @@ export class ProactiveDialoguePlanner {
     this.lastWakeupTimestampMs = now;
     this.wakeupTimestamps.push(now);
 
+    const isLowEntropyReason =
+      signal.reason.startsWith("low_entropy_") || signal.reason.startsWith("relation_");
+    const lowEntropyPrompt =
+      this.config.i18n?.t("proactive.message.low_entropy") ??
+      "我可能缺少关键关系信息：涉及哪些实体？它们之间是什么关系（依赖/因果/流程/约束）？";
+
     if (signal.mode === "inject") {
       return {
         action: "ask_followup",
         shouldSearchEvidence,
         searchQueries,
-        messageSeed:
-          this.config.i18n?.t("proactive.message.suggest", { label }) ??
-          `I suggest prioritizing "${label}". Do you want me to give you the smallest next-step checklist now?`,
+        messageSeed: isLowEntropyReason
+          ? lowEntropyPrompt
+          : (this.config.i18n?.t("proactive.message.suggest", { label }) ??
+            `I suggest prioritizing "${label}". Do you want me to give you the smallest next-step checklist now?`),
         reason: signal.reason
       };
     }

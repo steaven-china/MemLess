@@ -123,6 +123,7 @@ export function renderAppHtml(i18n: I18n): string {
           <div class="actions">
             <button type="button" id="debugBtn">${i18n.t("web.button.debug")}</button>
             <button type="button" id="sealBtn">${i18n.t("web.button.seal")}</button>
+            <button type="button" id="stopBtn">${i18n.t("web.button.stop")}</button>
             <button type="submit" class="primary" id="sendBtn">${i18n.t("web.button.send")}</button>
           </div>
         </form>
@@ -213,6 +214,7 @@ export function renderAppHtml(i18n: I18n): string {
     const debugPanel = document.getElementById("debugPanel");
     const refreshDebugBtn = document.getElementById("refreshDebugBtn");
     const sendBtn = document.getElementById("sendBtn");
+    const stopBtn = document.getElementById("stopBtn");
     const sealBtn = document.getElementById("sealBtn");
     const statusEl = document.getElementById("status");
     const storageLine = document.getElementById("storageLine");
@@ -242,8 +244,16 @@ export function renderAppHtml(i18n: I18n): string {
     let debugAdminTokenRequired = false;
     let debugAdminToken = loadPersistedAdminToken();
     let debugCapabilitiesLoaded = false;
+    const activeSessionId = loadPersistedSessionId();
+    let inflightRequestId = "";
+    let activeAbortController = null;
+    let pendingInterruptedContext = null;
+    const INTERRUPT_RETAIN_SENTENCE_LIMIT = 3;
+    const INTERRUPT_RETAIN_FALLBACK_CHARS = 180;
+    const INTERRUPT_RETAIN_MAX_CHARS = 400;
 
     renderDebugButtonState();
+    stopBtn.disabled = true;
     addBubble("assistant", t("web.greeting"));
     void initializeCapabilities();
 
@@ -267,7 +277,7 @@ export function renderAppHtml(i18n: I18n): string {
     sealBtn.addEventListener("click", async () => {
       setBusy(true, t("web.status.sealing"));
       try {
-        const response = await fetch("/api/seal", { method: "POST" });
+        const response = await fetch("/api/seal?sessionId=" + encodeURIComponent(activeSessionId), { method: "POST" });
         if (!response.ok) throw new Error(t("web.error.seal_failed"));
         addBubble("assistant", t("web.message.sealed"));
         if (debugVisible) {
@@ -278,6 +288,11 @@ export function renderAppHtml(i18n: I18n): string {
       } finally {
         setBusy(false, t("web.status.ready"));
       }
+    });
+
+    stopBtn.addEventListener("click", () => {
+      if (!activeAbortController) return;
+      activeAbortController.abort();
     });
 
     debugBtn.addEventListener("click", async () => {
@@ -412,28 +427,49 @@ export function renderAppHtml(i18n: I18n): string {
     }
 
     async function sendMessage(text) {
+      const sessionPending =
+        pendingInterruptedContext && pendingInterruptedContext.sessionId === activeSessionId
+          ? pendingInterruptedContext
+          : null;
+      const requestText = sessionPending
+        ? composeInterruptResumePrompt(sessionPending.originalQuestion, sessionPending.partialText, text)
+        : text;
+      if (sessionPending) {
+        pendingInterruptedContext = null;
+      }
+
       addBubble("user", text);
       const assistantBubble = addBubble("assistant", "");
       assistantBubble.classList.add("streaming");
       setBusy(true, t("web.status.thinking"));
+      const requestId = createRequestId();
+      inflightRequestId = requestId;
+      const abortController = new AbortController();
+      activeAbortController = abortController;
+      let textSoFar = "";
 
       try {
         const response = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text })
+          body: JSON.stringify({ message: requestText, sessionId: activeSessionId, requestId }),
+          signal: abortController.signal
         });
 
         if (!response.ok || !response.body) {
           const fallback = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: text })
+            body: JSON.stringify({ message: requestText, sessionId: activeSessionId, requestId }),
+            signal: abortController.signal
           });
           if (!fallback.ok) {
             throw new Error(t("web.error.chat_fallback_failed"));
           }
           const data = await fallback.json();
+          if (!isCurrentMessageFrame(data, requestId)) {
+            return;
+          }
           const replyText = typeof data.reply === "string" ? data.reply : t("web.error.request_failed");
           const proactiveText = typeof data.proactiveReply === "string" ? data.proactiveReply : "";
           assistantBubble.textContent = proactiveText
@@ -452,7 +488,6 @@ export function renderAppHtml(i18n: I18n): string {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
-        let textSoFar = "";
         let buffer = "";
 
         while (true) {
@@ -465,6 +500,10 @@ export function renderAppHtml(i18n: I18n): string {
             const frame = buffer.slice(0, boundary);
             buffer = buffer.slice(boundary + 2);
             const parsed = parseSseFrame(frame);
+            if (!isCurrentMessageFrame(parsed.data, requestId)) {
+              boundary = buffer.indexOf("\\n\\n");
+              continue;
+            }
             if (parsed.event === "token") {
               const token = parsed.data?.token ?? "";
               textSoFar += token;
@@ -492,9 +531,28 @@ export function renderAppHtml(i18n: I18n): string {
           }
         }
       } catch (error) {
-        assistantBubble.textContent = t("web.error.stream_failed");
-        assistantBubble.classList.remove("streaming");
+        const interrupted = abortController.signal.aborted;
+        if (interrupted) {
+          const interruptedText = formatInterruptedAssistantText(textSoFar);
+          assistantBubble.textContent = interruptedText;
+          assistantBubble.classList.remove("streaming");
+          pendingInterruptedContext = {
+            sessionId: activeSessionId,
+            originalQuestion: text,
+            partialText: textSoFar,
+            at: Date.now()
+          };
+        } else {
+          assistantBubble.textContent = t("web.error.stream_failed");
+          assistantBubble.classList.remove("streaming");
+        }
       } finally {
+        if (inflightRequestId === requestId) {
+          inflightRequestId = "";
+        }
+        if (activeAbortController === abortController) {
+          activeAbortController = null;
+        }
         setBusy(false, t("web.status.ready"));
       }
     }
@@ -510,6 +568,7 @@ export function renderAppHtml(i18n: I18n): string {
 
     function setBusy(isBusy, label) {
       sendBtn.disabled = isBusy;
+      stopBtn.disabled = !isBusy;
       statusEl.textContent = label;
       statusEl.dataset.live = isBusy ? "0" : "1";
     }
@@ -537,6 +596,59 @@ export function renderAppHtml(i18n: I18n): string {
       return { event, data };
     }
 
+    function composeInterruptResumePrompt(previousQuestion, partialAssistantText, newQuestion) {
+      const retainedPrefix = retainLeadingSentences(partialAssistantText);
+      return [
+        "你正在继续一次被打断的对话。",
+        "[打断前用户问题]",
+        (previousQuestion || "").trim() || "(空)",
+        "",
+        "[已输出但被打断的前文（节选）]",
+        retainedPrefix || "(无)",
+        "",
+        "[用户打断后新输入]",
+        (newQuestion || "").trim() || "(空)",
+        "",
+        "请遵循：优先延续原回答；若新输入要求转向，先衔接一句再转答；避免重复已输出内容。"
+      ].join("\\n");
+    }
+
+    function retainLeadingSentences(content) {
+      const normalized = String(content ?? "").replace(/\\r\\n/g, "\\n").trim();
+      if (!normalized) return "";
+      const compact = normalized.replace(/\\n{2,}/g, "\\n");
+      const sentenceMatches = compact.match(/[^。！？!?\\n]+(?:[。！？!?]|\\n|$)/g) ?? [];
+      const sentences = sentenceMatches
+        .map((chunk) => chunk.trim())
+        .filter((chunk) => chunk.length > 0)
+        .slice(0, INTERRUPT_RETAIN_SENTENCE_LIMIT);
+      const fromSentences = sentences.join(" ").trim();
+      const fallback = compact.slice(0, INTERRUPT_RETAIN_FALLBACK_CHARS).trim();
+      const hasDelimiter = /[。！？!?\\n]/.test(compact);
+      const selected = !hasDelimiter && fromSentences.length > INTERRUPT_RETAIN_FALLBACK_CHARS
+        ? fallback
+        : fromSentences || fallback;
+      if (!selected) return "";
+      return selected.slice(0, INTERRUPT_RETAIN_MAX_CHARS).trim();
+    }
+
+    function formatInterruptedAssistantText(content) {
+      const trimmed = String(content ?? "").trim();
+      if (!trimmed) {
+        return t("web.placeholder.interrupted");
+      }
+      return trimmed + "\\n\\n" + t("web.placeholder.interrupted");
+    }
+
+    function isCurrentMessageFrame(data, requestId) {
+      if (!data || typeof data !== "object") return false;
+      if (inflightRequestId !== requestId) return false;
+      if (typeof data.requestId !== "string") return false;
+      if (data.requestId !== requestId) return false;
+      if (typeof data.sessionId !== "string") return false;
+      return data.sessionId === activeSessionId;
+    }
+
     async function updateDebug() {
       if (!debugVisible) return;
       await refreshDebug();
@@ -548,7 +660,7 @@ export function renderAppHtml(i18n: I18n): string {
         return;
       }
       try {
-        const response = await fetch("/api/debug/database", {
+        const response = await fetch("/api/debug/database?sessionId=" + encodeURIComponent(activeSessionId), {
           headers: buildAdminHeaders()
         });
         if (response.status === 404) {
@@ -685,7 +797,7 @@ export function renderAppHtml(i18n: I18n): string {
 
     async function loadBlockDetail(blockId, allowAuthRetry) {
       try {
-        const response = await fetch("/api/debug/block?id=" + encodeURIComponent(blockId), {
+        const response = await fetch("/api/debug/block?id=" + encodeURIComponent(blockId) + "&sessionId=" + encodeURIComponent(activeSessionId), {
           headers: buildAdminHeaders()
         });
         if (response.status === 404) {
@@ -899,6 +1011,29 @@ export function renderAppHtml(i18n: I18n): string {
         window.localStorage.setItem("mlex.debugAdminToken", normalized);
       } catch {}
       return normalized;
+    }
+
+    function loadPersistedSessionId() {
+      try {
+        const existing = window.localStorage.getItem("mlex.web.sessionId") ?? "";
+        const normalized = existing.trim();
+        if (normalized.length > 0) {
+          return normalized;
+        }
+        const created = createRequestId();
+        window.localStorage.setItem("mlex.web.sessionId", created);
+        return created;
+      } catch {
+        return createRequestId();
+      }
+    }
+
+    function createRequestId() {
+      const globalCrypto = window.crypto;
+      if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+        return globalCrypto.randomUUID();
+      }
+      return "req-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
     }
   </script>
 </body>

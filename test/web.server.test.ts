@@ -72,10 +72,12 @@ describe("Web server", () => {
     const response = await fetch(`${started.url}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "你好" })
+      body: JSON.stringify({ message: "你好", sessionId: "web-test-s1", requestId: "req-chat-1" })
     });
     expect(response.status).toBe(200);
     const data = (await response.json()) as {
+      requestId?: string;
+      sessionId?: string;
       reply?: string;
       proactiveReply?: string | null;
       context?: string;
@@ -84,6 +86,8 @@ describe("Web server", () => {
       rawContext?: unknown;
       latestReadFilePath?: string | null;
     };
+    expect(data.requestId).toBe("req-chat-1");
+    expect(data.sessionId).toBe("web-test-s1");
     expect(typeof data.reply).toBe("string");
     expect((data.reply ?? "").length).toBeGreaterThan(0);
     expect(typeof data.context).toBe("string");
@@ -108,17 +112,67 @@ describe("Web server", () => {
     const response = await fetch(`${started.url}/api/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "请输出 stream 测试" })
+      body: JSON.stringify({
+        message: "请输出 stream 测试",
+        sessionId: "web-test-sse",
+        requestId: "req-stream-1"
+      })
     });
     expect(response.status).toBe(200);
     const contentType = response.headers.get("content-type") ?? "";
     expect(contentType.includes("text/event-stream")).toBe(true);
     const text = await response.text();
     expect(text).toContain("event: done");
+    expect(text).toContain("\"requestId\":\"req-stream-1\"");
+    expect(text).toContain("\"sessionId\":\"web-test-sse\"");
     expect(text).toContain("\"context\"");
     expect(text).toContain("\"prediction\"");
     expect(text).toContain("\"rawContext\"");
     expect(text).toContain("\"latestReadFilePath\"");
+  });
+
+  test("isolates debug lastContext by session", async () => {
+    started = await startWebServer({
+      host: "127.0.0.1",
+      port: 0,
+      runtimeOverrides: {
+        component: {
+          webDebugApiEnabled: true
+        }
+      }
+    });
+
+    const chatA = await fetch(`${started.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "sessionA: first", sessionId: "session-A", requestId: "req-a-1" })
+    });
+    expect(chatA.status).toBe(200);
+
+    const chatB = await fetch(`${started.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "sessionB: first", sessionId: "session-B", requestId: "req-b-1" })
+    });
+    expect(chatB.status).toBe(200);
+
+    const debugA = await fetch(`${started.url}/api/debug/database?sessionId=session-A`);
+    expect(debugA.status).toBe(200);
+    const debugAData = (await debugA.json()) as {
+      sessionId?: string;
+      lastContext?: { query?: string } | null;
+    };
+    expect(debugAData.sessionId).toBe("session-A");
+    expect(debugAData.lastContext?.query).toBe("sessionA: first");
+
+    const debugB = await fetch(`${started.url}/api/debug/database?sessionId=session-B`);
+    expect(debugB.status).toBe(200);
+    const debugBData = (await debugB.json()) as {
+      sessionId?: string;
+      lastContext?: { query?: string } | null;
+    };
+    expect(debugBData.sessionId).toBe("session-B");
+    expect(debugBData.lastContext?.query).toBe("sessionB: first");
   });
 
   test("returns latestReadFilePath even when rawContext is disabled", async () => {
@@ -310,6 +364,110 @@ describe("Web server", () => {
       }
     });
     expect(allowed.status).toBe(200);
+  });
+
+  test("supports interrupted-resume prompt on next request in same session", async () => {
+    started = await startWebServer({
+      host: "127.0.0.1",
+      port: 0
+    });
+
+    const interruptedContext = {
+      sessionId: "web-resume-s1",
+      originalQuestion: "请解释一下关系预测为什么会触发",
+      partialText: "先看第一点。再看第二点。第三点是权衡。第四点是扩展。",
+      at: Date.now()
+    };
+
+    const resumedMessage = [
+      "你正在继续一次被打断的对话。",
+      "[打断前用户问题]",
+      interruptedContext.originalQuestion,
+      "",
+      "[已输出但被打断的前文（节选）]",
+      "先看第一点。 再看第二点。 第三点是权衡。",
+      "",
+      "[用户打断后新输入]",
+      "请继续并给一个最小例子",
+      "",
+      "请遵循：优先延续原回答；若新输入要求转向，先衔接一句再转答；避免重复已输出内容。"
+    ].join("\n");
+
+    const response = await fetch(`${started.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: resumedMessage,
+        sessionId: interruptedContext.sessionId,
+        requestId: "req-resume-1"
+      })
+    });
+
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as {
+      requestId?: string;
+      sessionId?: string;
+      reply?: string;
+      context?: string;
+    };
+    expect(data.requestId).toBe("req-resume-1");
+    expect(data.sessionId).toBe("web-resume-s1");
+    expect(typeof data.reply).toBe("string");
+    expect((data.reply ?? "").length).toBeGreaterThan(0);
+    expect(typeof data.context).toBe("string");
+  });
+
+  test("stream endpoint remains healthy after client abort", async () => {
+    started = await startWebServer({
+      host: "127.0.0.1",
+      port: 0
+    });
+
+    const controller = new AbortController();
+    const streamPromise = fetch(`${started.url}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "请开始一个较长回答",
+        sessionId: "abort-session-1",
+        requestId: "req-abort-1"
+      }),
+      signal: controller.signal
+    });
+    controller.abort();
+    await expect(streamPromise).rejects.toHaveProperty("name", "AbortError");
+
+    const afterAbort = await fetch(`${started.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "中断后继续",
+        sessionId: "abort-session-1",
+        requestId: "req-abort-2"
+      })
+    });
+    expect(afterAbort.status).toBe(200);
+    const data = (await afterAbort.json()) as { requestId?: string; sessionId?: string };
+    expect(data.requestId).toBe("req-abort-2");
+    expect(data.sessionId).toBe("abort-session-1");
+  });
+
+  test("defaults sessionId and requestId when omitted", async () => {
+    started = await startWebServer({
+      host: "127.0.0.1",
+      port: 0
+    });
+
+    const response = await fetch(`${started.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "no ids provided" })
+    });
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as { requestId?: string; sessionId?: string };
+    expect(typeof data.requestId).toBe("string");
+    expect((data.requestId ?? "").length).toBeGreaterThan(0);
+    expect(data.sessionId).toBe("default");
   });
 
   test("rejects oversized chat payloads", async () => {

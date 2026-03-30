@@ -57,6 +57,32 @@ describe("ProactiveDialoguePlanner", () => {
     expect(plan.messageSeed).toContain("支付重试修复");
   });
 
+  test("uses low entropy relation-oriented prompt for low entropy reasons", () => {
+    const planner = new ProactiveDialoguePlanner({
+      proactiveWakeupRequireEvidence: false,
+      proactiveWakeupMinIntervalSeconds: 0,
+      proactiveWakeupMaxPerHour: 3
+    });
+
+    const plan = planner.buildPlan({
+      userInput: "继续",
+      context: createContext({
+        allowWakeup: true,
+        mode: "inject",
+        intents: [{ blockId: "b1", label: "任务A", confidence: 0.8 }],
+        reason: "low_entropy_soft",
+        evidenceNeedHint: "search_optional",
+        triggerSource: "user",
+        timerEnabled: true,
+        timerIntervalSeconds: 30
+      })
+    });
+
+    expect(plan.action).toBe("ask_followup");
+    expect(plan.shouldSearchEvidence).toBe(false);
+    expect(plan.messageSeed).toContain("关系信息");
+  });
+
   test("blocks by cooldown and hourly budget", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-27T10:00:00.000Z"));

@@ -14,6 +14,8 @@ export interface HybridRetrieveInput {
 export interface HybridRetrieveOutput {
   scores: Map<string, number>;
   semanticSeedIds: string[];
+  graphHitIds?: string[];
+  graphHitConfidenceAvg?: number;
 }
 
 export class HybridRetriever {
@@ -37,6 +39,8 @@ export class HybridRetriever {
     }
 
     const semanticSeedIds = semanticHits.map((hit) => hit.blockId);
+    let graphHitIds: string[] = [];
+    let graphHitConfidenceAvg = 0;
 
     if (input.directionalIntent && this.config.enableRelationExpansion) {
       const seedIds = [...semanticSeedIds];
@@ -53,6 +57,11 @@ export class HybridRetriever {
         relationTypes: input.directionalIntent.relationTypes,
         depth: input.directionalIntent.depth
       });
+      graphHitIds = graphHits.map((hit) => hit.blockId);
+      graphHitConfidenceAvg =
+        graphHits.length > 0
+          ? graphHits.reduce((sum, hit) => sum + hit.score, 0) / graphHits.length
+          : 0;
 
       for (const hit of graphHits) {
         const base = scores.get(hit.blockId) ?? 0;
@@ -62,7 +71,9 @@ export class HybridRetriever {
 
     return {
       scores,
-      semanticSeedIds
+      semanticSeedIds,
+      graphHitIds,
+      graphHitConfidenceAvg
     };
   }
 }

@@ -141,6 +141,30 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   proactiveWakeupRequireEvidence: false,
   proactiveTimerEnabled: false,
   proactiveTimerIntervalSeconds: 300,
+  lowEntropyTriggerEnabled: true,
+  lowEntropyWindowSize: 6,
+  lowEntropyMinSignals: 2,
+  lowEntropyNoveltyMax: 0.2,
+  lowEntropyRetrievalOverlapMin: 0.7,
+  lowEntropyPredictionWeightMax: 0.02,
+  lowEntropyRelationNewRateMax: 0.2,
+  lowEntropyGraphCoverageMax: 0.3,
+  lowEntropyRelationConfidenceMax: 0.3,
+  lowEntropySoftStreakK: 2,
+  lowEntropyHardStreakK: 4,
+  lowEntropySoftCooldownSeconds: 300,
+  lowEntropyHardCooldownSeconds: 900,
+  relationTriggerEnabled: true,
+  relationTriggerWindowSize: 50,
+  relationTriggerStreakRequired: 3,
+  relationTriggerCooldownSeconds: 900,
+  relationTriggerLowInfoThreshold: 0.25,
+  relationTriggerHighEntropyThreshold: 0.75,
+  relationTriggerShortChainMaxSize: 2,
+  relationMinConfidence: 0.35,
+  relationCandidatePromoteScore: 0.65,
+  relationCandidateDecay: 0.85,
+  relationConflictDetectionEnabled: true,
   agentMaxToolRounds: 12
 };
 
@@ -305,6 +329,96 @@ export function loadConfig(
       "MLEX_PROACTIVE_TIMER_INTERVAL_SECONDS",
       DEFAULT_MANAGER_CONFIG.proactiveTimerIntervalSeconds
     ),
+    lowEntropyTriggerEnabled:
+      (process.env.MLEX_LOW_ENTROPY_TRIGGER_ENABLED ?? "true").toLowerCase() === "true",
+    lowEntropyWindowSize: parseEnvNumber(
+      "MLEX_LOW_ENTROPY_WINDOW_SIZE",
+      DEFAULT_MANAGER_CONFIG.lowEntropyWindowSize
+    ),
+    lowEntropyMinSignals: parseEnvNumber(
+      "MLEX_LOW_ENTROPY_MIN_SIGNALS",
+      DEFAULT_MANAGER_CONFIG.lowEntropyMinSignals
+    ),
+    lowEntropyNoveltyMax: parseEnvFloat(
+      "MLEX_LOW_ENTROPY_NOVELTY_MAX",
+      DEFAULT_MANAGER_CONFIG.lowEntropyNoveltyMax
+    ),
+    lowEntropyRetrievalOverlapMin: parseEnvFloat(
+      "MLEX_LOW_ENTROPY_RETRIEVAL_OVERLAP_MIN",
+      DEFAULT_MANAGER_CONFIG.lowEntropyRetrievalOverlapMin
+    ),
+    lowEntropyPredictionWeightMax: parseEnvFloat(
+      "MLEX_LOW_ENTROPY_PREDICTION_WEIGHT_MAX",
+      DEFAULT_MANAGER_CONFIG.lowEntropyPredictionWeightMax
+    ),
+    lowEntropyRelationNewRateMax: parseEnvFloat(
+      "MLEX_LOW_ENTROPY_RELATION_NEW_RATE_MAX",
+      DEFAULT_MANAGER_CONFIG.lowEntropyRelationNewRateMax
+    ),
+    lowEntropyGraphCoverageMax: parseEnvFloat(
+      "MLEX_LOW_ENTROPY_GRAPH_COVERAGE_MAX",
+      DEFAULT_MANAGER_CONFIG.lowEntropyGraphCoverageMax
+    ),
+    lowEntropyRelationConfidenceMax: parseEnvFloat(
+      "MLEX_LOW_ENTROPY_RELATION_CONFIDENCE_MAX",
+      DEFAULT_MANAGER_CONFIG.lowEntropyRelationConfidenceMax
+    ),
+    lowEntropySoftStreakK: parseEnvNumber(
+      "MLEX_LOW_ENTROPY_SOFT_STREAK_K",
+      DEFAULT_MANAGER_CONFIG.lowEntropySoftStreakK
+    ),
+    lowEntropyHardStreakK: parseEnvNumber(
+      "MLEX_LOW_ENTROPY_HARD_STREAK_K",
+      DEFAULT_MANAGER_CONFIG.lowEntropyHardStreakK
+    ),
+    lowEntropySoftCooldownSeconds: parseEnvNumber(
+      "MLEX_LOW_ENTROPY_SOFT_COOLDOWN_SECONDS",
+      DEFAULT_MANAGER_CONFIG.lowEntropySoftCooldownSeconds
+    ),
+    lowEntropyHardCooldownSeconds: parseEnvNumber(
+      "MLEX_LOW_ENTROPY_HARD_COOLDOWN_SECONDS",
+      DEFAULT_MANAGER_CONFIG.lowEntropyHardCooldownSeconds
+    ),
+    relationTriggerEnabled:
+      (process.env.MLEX_RELATION_TRIGGER_ENABLED ?? "true").toLowerCase() === "true",
+    relationTriggerWindowSize: parseEnvNumber(
+      "MLEX_RELATION_TRIGGER_WINDOW_SIZE",
+      DEFAULT_MANAGER_CONFIG.relationTriggerWindowSize
+    ),
+    relationTriggerStreakRequired: parseEnvNumber(
+      "MLEX_RELATION_TRIGGER_STREAK_REQUIRED",
+      DEFAULT_MANAGER_CONFIG.relationTriggerStreakRequired
+    ),
+    relationTriggerCooldownSeconds: parseEnvNumber(
+      "MLEX_RELATION_TRIGGER_COOLDOWN_SECONDS",
+      DEFAULT_MANAGER_CONFIG.relationTriggerCooldownSeconds
+    ),
+    relationTriggerLowInfoThreshold: parseEnvFloat(
+      "MLEX_RELATION_TRIGGER_LOW_INFO_THRESHOLD",
+      DEFAULT_MANAGER_CONFIG.relationTriggerLowInfoThreshold
+    ),
+    relationTriggerHighEntropyThreshold: parseEnvFloat(
+      "MLEX_RELATION_TRIGGER_HIGH_ENTROPY_THRESHOLD",
+      DEFAULT_MANAGER_CONFIG.relationTriggerHighEntropyThreshold
+    ),
+    relationTriggerShortChainMaxSize: parseEnvNumber(
+      "MLEX_RELATION_TRIGGER_SHORT_CHAIN_MAX_SIZE",
+      DEFAULT_MANAGER_CONFIG.relationTriggerShortChainMaxSize
+    ),
+    relationMinConfidence: parseEnvFloat(
+      "MLEX_RELATION_MIN_CONFIDENCE",
+      DEFAULT_MANAGER_CONFIG.relationMinConfidence
+    ),
+    relationCandidatePromoteScore: parseEnvFloat(
+      "MLEX_RELATION_CANDIDATE_PROMOTE_SCORE",
+      DEFAULT_MANAGER_CONFIG.relationCandidatePromoteScore
+    ),
+    relationCandidateDecay: parseEnvFloat(
+      "MLEX_RELATION_CANDIDATE_DECAY",
+      DEFAULT_MANAGER_CONFIG.relationCandidateDecay
+    ),
+    relationConflictDetectionEnabled:
+      (process.env.MLEX_RELATION_CONFLICT_DETECTION_ENABLED ?? "true").toLowerCase() === "true",
     agentMaxToolRounds: Math.max(
       1,
       parseEnvNumber("MLEX_AGENT_MAX_TOOL_ROUNDS", DEFAULT_MANAGER_CONFIG.agentMaxToolRounds)
