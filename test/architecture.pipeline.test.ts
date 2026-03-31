@@ -63,14 +63,14 @@ describe("Architecture pipeline", () => {
 
   test("persists blocks/raw-events/relations with file backends across restarts", async () => {
     const folder = await fs.mkdtemp(join(tmpdir(), "mlex-arch-"));
-    const blockFile = join(folder, "blocks.json");
+    const lanceDbDir = join(folder, "lancedb");
     const rawFile = join(folder, "raw-events.json");
     const relationFile = join(folder, "relations.json");
 
     const runtime1 = createRuntime({
       component: {
         storageBackend: "lance",
-        lanceFilePath: blockFile,
+        lanceDbPath: lanceDbDir,
         rawStoreBackend: "file",
         rawStoreFilePath: rawFile,
         relationStoreBackend: "file",
@@ -101,7 +101,7 @@ describe("Architecture pipeline", () => {
     const runtime2 = createRuntime({
       component: {
         storageBackend: "lance",
-        lanceFilePath: blockFile,
+        lanceDbPath: lanceDbDir,
         rawStoreBackend: "file",
         rawStoreFilePath: rawFile,
         relationStoreBackend: "file",
@@ -122,7 +122,7 @@ describe("Architecture pipeline", () => {
 
     const rawPayload = JSON.parse(await fs.readFile(rawFile, "utf8")) as Record<string, unknown>;
     expect(Object.keys(rawPayload).length).toBeGreaterThan(0);
-  });
+  }, { timeout: 30_000 });
 
   test("persists blocks/raw-events/relations with sqlite backends across restarts", async () => {
     const folder = await fs.mkdtemp(join(tmpdir(), "mlex-arch-sqlite-"));

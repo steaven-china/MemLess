@@ -30,6 +30,7 @@ const optionDescriptions = {
   storageBackend: i18n.t("cli.option.storage_backend"),
   sqliteFile: i18n.t("cli.option.sqlite_file"),
   lanceFile: i18n.t("cli.option.lance_file"),
+  lanceDbPath: i18n.t("cli.option.lance_db_path"),
   chromaBaseUrl: i18n.t("cli.option.chroma_base_url"),
   chromaCollection: i18n.t("cli.option.chroma_collection"),
   rawStoreBackend: i18n.t("cli.option.raw_store_backend"),
@@ -95,6 +96,7 @@ program
   .option("--storage-backend <backend>", optionDescriptions.storageBackend)
   .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
   .option("--lance-file <path>", optionDescriptions.lanceFile)
+  .option("--lance-db-path <path>", optionDescriptions.lanceDbPath)
   .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
   .option("--raw-store-file <path>", optionDescriptions.rawStoreFile)
   .option("--relation-store-backend <backend>", optionDescriptions.relationStoreBackend)
@@ -311,6 +313,7 @@ function applyAgentRuntimeOptions(command: Command): void {
     .option("--storage-backend <backend>", optionDescriptions.storageBackend)
     .option("--sqlite-file <path>", optionDescriptions.sqliteFile)
     .option("--lance-file <path>", optionDescriptions.lanceFile)
+    .option("--lance-db-path <path>", optionDescriptions.lanceDbPath)
     .option("--chroma-base-url <url>", optionDescriptions.chromaBaseUrl)
     .option("--chroma-collection <id>", optionDescriptions.chromaCollection)
     .option("--raw-store-backend <backend>", optionDescriptions.rawStoreBackend)
@@ -367,6 +370,7 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       storageBackend: asOptionalString(options.storageBackend) as AppConfig["component"]["storageBackend"],
       sqliteFilePath: asOptionalString(options.sqliteFile),
       lanceFilePath: asOptionalString(options.lanceFile),
+      lanceDbPath: asOptionalString(options.lanceDbPath),
       chromaBaseUrl: asOptionalString(options.chromaBaseUrl),
       chromaCollectionId: asOptionalString(options.chromaCollection),
       searchEndpoint: asOptionalString(options.searchEndpoint),

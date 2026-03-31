@@ -8,3 +8,12 @@ coverage
 .claude/
 *.db-wal
 *.db-shm
+memory-module-src.tar.gz
+
+# Debug scripts
+scripts/debug-*.ts
+scripts/check-*.ts
+scripts/test-*.ts
+
+# Generated eval fixtures (run gen-eval-cases.ts to generate)
+test/fixtures/

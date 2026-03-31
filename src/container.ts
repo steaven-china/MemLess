@@ -16,7 +16,8 @@ import { HybridChunkStrategy } from "./memory/chunking/HybridChunkStrategy.js";
 import type { IChunkStrategy } from "./memory/chunking/IChunkStrategy.js";
 import { SemanticBoundaryChunkStrategy } from "./memory/chunking/SemanticBoundaryChunkStrategy.js";
 import { HashEmbedder } from "./memory/embedder/HashEmbedder.js";
-import { HistoryMatchCalculator } from "./memory/management/HistoryMatchCalculator.js";
+import { LocalEmbedder } from "./memory/embedder/LocalEmbedder.js";
+import { HybridEmbedder } from "./memory/embedder/HybridEmbedder.js";import { HistoryMatchCalculator } from "./memory/management/HistoryMatchCalculator.js";
 import { buildTagger } from "./memory/tagger/taggerFactory.js";
 import { normalizeAllowedAiTags } from "./memory/tagger/TagNormalizer.js";
 import {
@@ -59,9 +60,13 @@ import { InMemoryBlockStore } from "./memory/store/InMemoryBlockStore.js";
 import { LanceBlockStore } from "./memory/store/LanceBlockStore.js";
 import { SQLiteBlockStore } from "./memory/store/SQLiteBlockStore.js";
 import { SQLiteWorkerBlockStore } from "./memory/store/SQLiteWorkerBlockStore.js";
+import type { IBlockStore } from "./memory/store/IBlockStore.js";
+import { LanceConnection } from "./memory/lance/LanceConnection.js";
+import { LanceVectorStore } from "./memory/vector/LanceVectorStore.js";
 import { HeuristicSummarizer } from "./memory/summarizer/HeuristicSummarizer.js";
 import { BlockStoreVectorStore } from "./memory/vector/BlockStoreVectorStore.js";
 import { InMemoryVectorStore } from "./memory/vector/InMemoryVectorStore.js";
+import { HybridVectorStore } from "./memory/vector/HybridVectorStore.js";
 import { HttpSearchProvider } from "./search/HttpSearchProvider.js";
 import { HttpWebPageFetcher } from "./search/HttpWebPageFetcher.js";
 import { SearchIngestScheduler } from "./search/SearchIngestScheduler.js";
@@ -236,8 +241,13 @@ function registerCoreDependencies(input: {
   });
   container.register("keywordIndex", () => new InvertedIndex());
   container.register("relationGraph", () => new RelationGraph());
+  container.register("lanceConnection", () =>
+    new LanceConnection({ dbPath: config.component.lanceDbPath })
+  );
   container.register("blockStore", () =>
-    buildBlockStore(config, getSQLiteDatabase, getSQLiteWorkerClient, allowedAiTags)
+    buildBlockStore(config, getSQLiteDatabase, getSQLiteWorkerClient, allowedAiTags, () =>
+      container.resolve("lanceConnection") as LanceConnection
+    )
   );
   container.register("rawStore", () => buildRawStore(config, getSQLiteDatabase, getSQLiteWorkerClient));
   container.register("relationStore", () =>
@@ -245,12 +255,42 @@ function registerCoreDependencies(input: {
   );
   container.register("vectorStore", () => {
     if (config.component.storageBackend === "memory") {
+      // hybrid embedder 模式下用 HybridVectorStore（自适应初筛+重排）
+      if (config.component.embedder === "hybrid") {
+        const embedder = container.resolve("embedder") as HybridEmbedder;
+        const blockStore = container.resolve<IBlockStore>("blockStore");
+        return new HybridVectorStore(embedder, blockStore);
+      }
       return new InMemoryVectorStore();
+    }
+    if (config.component.storageBackend === "lance") {
+      const conn = container.resolve("lanceConnection") as LanceConnection;
+      const blockStore = container.resolve("blockStore") as LanceBlockStore;
+      return new LanceVectorStore(conn, blockStore);
     }
     return new BlockStoreVectorStore(container.resolve("blockStore"));
   });
   container.register("summarizer", () => new HeuristicSummarizer());
-  container.register("embedder", () => new HashEmbedder(256, config.manager.embeddingSeed));
+  container.register("embedder", () => {
+    if (config.component.embedder === "local") {
+      return new LocalEmbedder({
+        model: config.component.embeddingModel,
+        mirror: config.component.embeddingMirror
+      });
+    }
+    if (config.component.embedder === "hybrid") {
+      return new HybridEmbedder({
+        hashDim: 256,
+        hashSeed: config.manager.embeddingSeed,
+        localModel: config.component.embeddingModel,
+        localMirror: config.component.embeddingMirror,
+        tokenThreshold: 100,  // 大于 100 token 用 local
+        forceHybridTags: ["important", "conflict"],  // 重要块用 hybrid
+        defaultMode: "auto"
+      });
+    }
+    return new HashEmbedder(256, config.manager.embeddingSeed);
+  });
   container.register("chunkStrategy", () => buildChunkStrategy(config));
   container.register("relationExtractor", () => {
     return buildRelationExtractor(config, container.resolve("debugTraceRecorder"));
@@ -532,7 +572,8 @@ function buildBlockStore(
   config: AppConfig,
   getSQLiteDatabase: () => SQLiteDatabase,
   getSQLiteWorkerClient: () => SQLiteWorkerClient,
-  allowedAiTags: string[]
+  allowedAiTags: string[],
+  getLanceConnection: () => LanceConnection = () => new LanceConnection({ dbPath: config.component.lanceDbPath })
 ) {
   if (config.component.storageBackend === "sqlite") {
     if (config.component.sqliteWorkerEnabled) {
@@ -541,7 +582,7 @@ function buildBlockStore(
     return new SQLiteBlockStore(getSQLiteDatabase(), allowedAiTags);
   }
   if (config.component.storageBackend === "lance") {
-    return new LanceBlockStore({ filePath: config.component.lanceFilePath }, allowedAiTags);
+    return new LanceBlockStore(getLanceConnection(), allowedAiTags);
   }
   if (config.component.storageBackend === "chroma") {
     if (!config.component.chromaBaseUrl || !config.component.chromaCollectionId) {

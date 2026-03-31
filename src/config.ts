@@ -50,7 +50,11 @@ export interface ComponentConfig {
   storageBackend: "memory" | "sqlite" | "lance" | "chroma";
   sqliteWorkerEnabled: boolean;
   sqliteFilePath: string;
+  embedder: "hash" | "local" | "hybrid";
+  embeddingModel: string;
+  embeddingMirror?: string;
   lanceFilePath: string;
+  lanceDbPath: string;
   chromaBaseUrl?: string;
   chromaCollectionId?: string;
   chromaApiKey?: string;
@@ -445,6 +449,12 @@ export function loadConfig(
       (process.env.MLEX_SQLITE_WORKER_ENABLED ?? "false").toLowerCase() === "true",
     sqliteFilePath: process.env.MLEX_SQLITE_FILE ?? ".mlex/memory.db",
     lanceFilePath: process.env.MLEX_LANCE_FILE ?? ".mlex/lance-blocks.json",
+    lanceDbPath: process.env.MLEX_LANCE_DB_PATH ?? ".mlex/lancedb",
+    embedder:
+      (process.env.MLEX_EMBEDDER as ComponentConfig["embedder"]) ??
+      (environment.nodeEnv === "test" ? "hash" : "local"),
+    embeddingModel: process.env.MLEX_EMBEDDING_MODEL ?? "Xenova/multilingual-e5-small",
+    embeddingMirror: process.env.MLEX_EMBEDDING_MIRROR,
     chromaBaseUrl: process.env.MLEX_CHROMA_BASE_URL,
     chromaCollectionId: process.env.MLEX_CHROMA_COLLECTION,
     chromaApiKey: process.env.MLEX_CHROMA_API_KEY,
@@ -510,6 +520,7 @@ function validateConfig(config: AppConfig): AppConfig {
   ]);
   validateEnum("component.locale", config.component.locale, ["zh-CN", "en-US"]);
   validateEnum("component.chunkStrategy", config.component.chunkStrategy, ["fixed", "semantic", "hybrid"]);
+  validateEnum("component.embedder", config.component.embedder, ["hash", "local", "hybrid"]);
   validateEnum("component.storageBackend", config.component.storageBackend, [
     "memory",
     "sqlite",

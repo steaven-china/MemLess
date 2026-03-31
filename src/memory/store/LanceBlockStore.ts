@@ -1,105 +1,88 @@
-import { promises as fs } from "node:fs";
-
 import { MemoryBlock } from "../MemoryBlock.js";
-import { writeJsonAtomic } from "../../utils/fs.js";
 import { normalizeBlockTags } from "../tagger/TagNormalizer.js";
 import type { IBlockStore } from "./IBlockStore.js";
+import { LanceConnection, serializeRow } from "../lance/LanceConnection.js";
+import type { LanceRow } from "../lance/LanceConnection.js";
 
-export interface LanceBlockStoreConfig {
-  filePath: string;
-}
-
-type SerializedBlock = {
-  id: string;
-  startTime: number;
-  endTime: number;
-  tokenCount: number;
-  summary: string;
-  keywords: string[];
-  embedding: number[];
-  rawEvents: MemoryBlock["rawEvents"];
-  retentionMode: MemoryBlock["retentionMode"];
-  matchScore: MemoryBlock["matchScore"];
-  conflict: MemoryBlock["conflict"];
-  tags?: MemoryBlock["tags"];
-};
+export { LanceConnection } from "../lance/LanceConnection.js";
+export type { LanceConnectionConfig } from "../lance/LanceConnection.js";
 
 export class LanceBlockStore implements IBlockStore {
-  private readonly table = new Map<string, MemoryBlock>();
-  private initialized = false;
-
   constructor(
-    private readonly config: LanceBlockStoreConfig,
+    private readonly connection: LanceConnection,
     private readonly allowedAiTags: string[] = ["important", "normal"]
   ) {}
 
   async upsert(block: MemoryBlock): Promise<void> {
-    await this.ensureLoaded();
-    this.table.set(block.id, block);
-    await this.flush();
+    const table = await this.connection.getTable(block);
+    const row = serializeRow(block);
+    await table
+      .mergeInsert("id")
+      .whenMatchedUpdateAll()
+      .whenNotMatchedInsertAll()
+      .execute([row]);
   }
 
   async get(blockId: string): Promise<MemoryBlock | undefined> {
-    await this.ensureLoaded();
-    return this.table.get(blockId);
+    const table = await this.connection.tryGetTable();
+    if (!table) return undefined;
+    const rows: LanceRow[] = await table
+      .query()
+      .where(`id = '${escapeSql(blockId)}'`)
+      .toArray();
+    return rows.length > 0 ? this.deserialize(rows[0]!) : undefined;
   }
 
   async getMany(blockIds: string[]): Promise<MemoryBlock[]> {
-    await this.ensureLoaded();
+    if (blockIds.length === 0) return [];
+    const table = await this.connection.tryGetTable();
+    if (!table) return [];
+    const inClause = blockIds.map((id) => `'${escapeSql(id)}'`).join(", ");
+    const rows: LanceRow[] = await table
+      .query()
+      .where(`id IN (${inClause})`)
+      .toArray();
+    // Preserve the requested order
+    const byId = new Map(rows.map((r) => [r.id, r]));
     return blockIds
-      .map((blockId) => this.table.get(blockId))
-      .filter((item): item is MemoryBlock => Boolean(item));
+      .map((id) => byId.get(id))
+      .filter((r): r is LanceRow => r !== undefined)
+      .map((r) => this.deserialize(r));
   }
 
   async list(): Promise<MemoryBlock[]> {
-    await this.ensureLoaded();
-    return [...this.table.values()].sort((a, b) => a.startTime - b.startTime);
+    const table = await this.connection.tryGetTable();
+    if (!table) return [];
+    const rows: LanceRow[] = await table.query().toArray();
+    return rows.map((r) => this.deserialize(r)).sort((a, b) => a.startTime - b.startTime);
   }
 
-  private async ensureLoaded(): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
-
-    try {
-      const raw = await fs.readFile(this.config.filePath, "utf8");
-      const payload = JSON.parse(raw) as SerializedBlock[];
-      for (const item of payload) {
-        const block = new MemoryBlock(item.id, item.startTime);
-        block.endTime = item.endTime;
-        block.tokenCount = item.tokenCount;
-        block.summary = item.summary;
-        block.keywords = item.keywords;
-        block.embedding = item.embedding;
-        block.rawEvents = item.rawEvents;
-        block.retentionMode = item.retentionMode ?? "raw";
-        block.matchScore = item.matchScore ?? 0;
-        block.conflict = item.conflict ?? false;
-        block.tags = normalizeBlockTags(item.tags, this.allowedAiTags);
-        this.table.set(block.id, block);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes("ENOENT")) {
-        throw error;
-      }
-    }
+  private deserialize(row: LanceRow): MemoryBlock {
+    const block = new MemoryBlock(row.id, row.startTime);
+    block.endTime = row.endTime;
+    block.tokenCount = row.tokenCount;
+    block.summary = row.summary ?? "";
+    block.keywords = safeParseJson<string[]>(row.keywords, []);
+    block.embedding = Array.isArray(row.vector) ? [...row.vector] : [];
+    block.rawEvents = safeParseJson(row.rawEvents, []);
+    block.retentionMode = (row.retentionMode as MemoryBlock["retentionMode"]) ?? "raw";
+    block.matchScore = row.matchScore ?? 0;
+    block.conflict = row.conflict ?? false;
+    block.tags = normalizeBlockTags(safeParseJson(row.tags, undefined), this.allowedAiTags);
+    return block;
   }
+}
 
-  private async flush(): Promise<void> {
-    const serialized = [...this.table.values()].map((block) => ({
-      id: block.id,
-      startTime: block.startTime,
-      endTime: block.endTime,
-      tokenCount: block.tokenCount,
-      summary: block.summary,
-      keywords: block.keywords,
-      embedding: block.embedding,
-      rawEvents: block.rawEvents,
-      retentionMode: block.retentionMode,
-      matchScore: block.matchScore,
-      conflict: block.conflict,
-      tags: normalizeBlockTags(block.tags, this.allowedAiTags)
-    }));
-    await writeJsonAtomic(this.config.filePath, serialized);
+function escapeSql(value: string): string {
+  // Escape single quotes by doubling them (SQL standard)
+  return value.replace(/'/g, "''");
+}
+
+function safeParseJson<T>(value: unknown, fallback: T): T {
+  if (!value || typeof value !== "string") return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
   }
 }

@@ -128,6 +128,9 @@ export class PartitionMemoryManager implements IMemoryManager {
   private lastLowEntropySoftUtc = 0;
   private lastLowEntropyHardUtc = 0;
   private relationTriggerLastHardUtc = 0;
+  // Per-signal raw-value history for variance-based weight computation.
+  // Order: [noveltyRate, retrievalOverlap, predictionWeight, relationNewRate, graphCoverage, relationConfidenceAvg]
+  private readonly entropySignalHistory: number[][] = [[], [], [], [], [], []];
 
   constructor(private readonly deps: PartitionMemoryManagerDeps) {
     this.nowMs = deps.nowMs ?? (() => Date.now());
@@ -233,7 +236,7 @@ export class PartitionMemoryManager implements IMemoryManager {
   async retrieveBlocks(query: string, triggerSource: ProactiveTriggerSource = "user"): Promise<BlockRef[]> {
     await this.hydrationPromise;
     const keywords = this.extractKeywords(query);
-    const embedding = this.embed(query);
+    const embedding = await this.embed(query);
     const directionalIntent = this.parseDirectionalIntent(query);
 
     const initial = await this.deps.hybridRetriever.retrieve({
@@ -253,7 +256,7 @@ export class PartitionMemoryManager implements IMemoryManager {
     if (this.activeBlock.rawEvents.length > 0) {
       const activeText = this.activeBlock.rawEvents.map((e) => e.text).join(" ");
       const activeKeywords = extractKeywords(activeText, 8);
-      const activeEmbedding = this.embed(activeText);
+      const activeEmbedding = await this.embed(activeText);
       const activeUnion = new Set([
         ...keywords.map((s) => s.toLowerCase()),
         ...activeKeywords.map((s) => s.toLowerCase())
@@ -270,10 +273,7 @@ export class PartitionMemoryManager implements IMemoryManager {
     }
     this.applyPendingPrefetchBoost(scores);
     const prePredictionScores = new Map(scores);
-    if (!hasLoggedPrePredictionScores.value) {
-      console.info("prePredictionScores", [...scores.entries()].slice(0, 5));
-      hasLoggedPrePredictionScores.value = true;
-    }
+    // Removed noisy prePredictionScores console.info
 
     const seedIds = [...initial.semanticSeedIds];
     if (this.lastSealedBlockId) seedIds.push(this.lastSealedBlockId);
@@ -443,7 +443,7 @@ export class PartitionMemoryManager implements IMemoryManager {
     return extractKeywords(text, 8);
   }
 
-  private embed(text: string): number[] {
+  private async embed(text: string): Promise<number[]> {
     return this.deps.embedder.embed(text);
   }
 
@@ -846,21 +846,46 @@ export class PartitionMemoryManager implements IMemoryManager {
       this.retrievalEntropyHistory.splice(0, this.retrievalEntropyHistory.length - windowSize);
     }
 
+    // Push raw signal values into per-signal history for variance computation.
+    const rawValues = [
+      snapshot.noveltyRate,
+      snapshot.retrievalOverlap,
+      snapshot.predictionWeight,
+      snapshot.relationNewRate,
+      snapshot.graphCoverage,
+      snapshot.relationConfidenceAvg
+    ];
+    for (let i = 0; i < rawValues.length; i++) {
+      this.entropySignalHistory[i]!.push(rawValues[i]!);
+      if (this.entropySignalHistory[i]!.length > windowSize) {
+        this.entropySignalHistory[i]!.splice(0, this.entropySignalHistory[i]!.length - windowSize);
+      }
+    }
+
     return snapshot;
   }
 
   private decideLowEntropyLevel(snapshot: RetrievalEntropySnapshot, nowUtc: number): LowEntropyDecision {
     const config = this.deps.config;
-    const lowSignals = [
+    const boolSignals = [
       snapshot.noveltyRate < config.lowEntropyNoveltyMax,
       snapshot.retrievalOverlap > config.lowEntropyRetrievalOverlapMin,
       snapshot.predictionWeight < config.lowEntropyPredictionWeightMax,
       snapshot.relationNewRate < config.lowEntropyRelationNewRateMax,
       snapshot.graphCoverage < config.lowEntropyGraphCoverageMax,
       snapshot.relationConfidenceAvg < config.lowEntropyRelationConfidenceMax
-    ].filter(Boolean).length;
+    ];
 
-    if (lowSignals < Math.max(1, config.lowEntropyMinSignals)) {
+    // Compute per-signal variance weights from sliding-window history.
+    // Stable signals (low variance) → higher weight; noisy signals → lower weight.
+    // Falls back to equal weight (1.0) when history is too short (< 2 points).
+    const weights = computeEntropySignalWeights(this.entropySignalHistory);
+
+    const weightedScore = boolSignals.reduce((sum, b, i) => sum + (b ? weights[i]! : 0), 0);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+    // Equivalent threshold: weighted proportion must meet minSignals / 6 ratio.
+    if (weightedScore < (Math.max(1, config.lowEntropyMinSignals) / boolSignals.length) * totalWeight) {
       this.lowEntropyStreak = 0;
       return { level: "none", reason: "low_entropy_not_met" };
     }
@@ -1104,6 +1129,38 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/**
+ * Compute per-signal weights from sliding-window value histories.
+ *
+ * Stable signals (low variance) get higher weight; noisy signals get lower weight.
+ * When a signal history has fewer than 2 points the function falls back to equal
+ * weight (1.0) for that signal, preserving the same behaviour as the old equal-weight
+ * count when all histories are cold-start.
+ *
+ * Exported for unit testing.
+ */
+export function computeEntropySignalWeights(signalHistories: readonly number[][]): number[] {
+  const WEIGHT_MIN = 0.5;
+  const WEIGHT_MAX = 2.0;
+  const VARIANCE_EPS = 0.01;
+
+  const rawWeights = signalHistories.map((history) => {
+    if (history.length < 2) return 1.0;
+    const mean = history.reduce((a, b) => a + b, 0) / history.length;
+    const variance = history.reduce((s, v) => s + (v - mean) ** 2, 0) / history.length;
+    return 1 / (variance + VARIANCE_EPS);
+  });
+
+  const minW = Math.min(...rawWeights);
+  const maxW = Math.max(...rawWeights);
+
+  if (minW === maxW) return rawWeights.map(() => 1.0);
+
+  return rawWeights.map(
+    (w) => WEIGHT_MIN + ((w - minW) / (maxW - minW)) * (WEIGHT_MAX - WEIGHT_MIN)
+  );
+}
+
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
@@ -1122,11 +1179,7 @@ function computePredictionBoost(
   boostMultiplier: number,
   boostCap: number
 ): number {
-  console.info("[prediction-boost]", {
-    confidence,
-    predictionBoostWeight,
-    boostMultiplier
-  });
+  // Removed noisy console.info for prediction-boost
   const rawBoost = confidence * predictionBoostWeight * boostMultiplier * PREDICTION_BOOST_SCALE;
   return Math.min(Math.max(rawBoost, PREDICTION_BOOST_FLOOR), boostCap);
 }

@@ -1,5 +1,5 @@
 import { tokenize } from "../../utils/text.js";
-import type { IEmbedder } from "./IEmbedder.js";
+import type { IEmbedder, EmbedOptions } from "./IEmbedder.js";
 
 export class HashEmbedder implements IEmbedder {
   constructor(
@@ -7,7 +7,7 @@ export class HashEmbedder implements IEmbedder {
     private readonly seed = 0
   ) {}
 
-  embed(text: string): number[] {
+  async embed(text: string, _options?: EmbedOptions): Promise<number[]> {
     const vector = new Array(this.dimensions).fill(0);
     const tokens = tokenize(text);
     if (tokens.length === 0) return vector;

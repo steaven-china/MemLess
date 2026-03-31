@@ -34,7 +34,13 @@ export class SealProcessor {
     const semanticText = `${summary}\n${joinEventText(block.rawEvents)}`.trim();
     block.summary = summary;
     block.keywords = this.extractKeywords(`${summary} ${joinEventText(block.rawEvents)}`);
-    block.embedding = this.embed(semanticText);
+
+    // 先打标签，再 embed（HybridEmbedder 需要 tags 判断策略）
+    block.tags = normalizeBlockTags(await this.deps.tagger.tag(block), this.deps.allowedAiTags);
+    block.embedding = await this.embed(semanticText, {
+      tokenCount: block.tokenCount,
+      tags: block.tags
+    });
 
     const matchResult = this.deps.historyMatchCalculator.calculate(block, history);
     block.matchScore = matchResult.score;
@@ -47,7 +53,6 @@ export class SealProcessor {
       relationBoost: matchResult.relationBoost
     });
     await decision.action.apply(block, this.deps.rawStore);
-    block.tags = normalizeBlockTags(await this.deps.tagger.tag(block), this.deps.allowedAiTags);
 
     return {
       block,
@@ -65,8 +70,8 @@ export class SealProcessor {
     return extractKeywords(text, 8);
   }
 
-  private embed(text: string): number[] {
-    return this.deps.embedder.embed(text);
+  private async embed(text: string, options?: { tokenCount?: number; tags?: string[] }): Promise<number[]> {
+    return this.deps.embedder.embed(text, options);
   }
 }
 

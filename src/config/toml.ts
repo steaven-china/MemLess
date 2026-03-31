@@ -246,6 +246,7 @@ function mapComponent(value: unknown, filePath: string, fieldPath: string): Deep
   assignBoolean(output, "sqliteWorkerEnabled", table.sqliteWorkerEnabled, filePath, `${fieldPath}.sqliteWorkerEnabled`);
   assignString(output, "sqliteFilePath", table.sqliteFilePath, filePath, `${fieldPath}.sqliteFilePath`);
   assignString(output, "lanceFilePath", table.lanceFilePath, filePath, `${fieldPath}.lanceFilePath`);
+  assignString(output, "lanceDbPath", table.lanceDbPath, filePath, `${fieldPath}.lanceDbPath`);
   assignString(output, "chromaBaseUrl", table.chromaBaseUrl, filePath, `${fieldPath}.chromaBaseUrl`);
   assignString(output, "chromaCollectionId", table.chromaCollectionId, filePath, `${fieldPath}.chromaCollectionId`);
   assignString(output, "chromaApiKey", table.chromaApiKey, filePath, `${fieldPath}.chromaApiKey`);

@@ -21,35 +21,57 @@ export class ProactiveActuator {
 
     let evidenceSummary = "";
     if (plan.shouldSearchEvidence && this.config.searchProvider && plan.searchQueries.length > 0) {
-      const query = plan.searchQueries[0] ?? "";
-      const response = await this.config.searchProvider.search({
-        query,
-        limit: Math.max(1, this.config.searchTopK)
-      });
-      const records = response.records;
-      if (records.length > 0) {
-        const summary = records
+      // Execute all queries concurrently, then deduplicate results by URL.
+      const allResults = await Promise.all(
+        plan.searchQueries.map((query) =>
+          this.config.searchProvider!.search({
+            query,
+            limit: Math.max(1, this.config.searchTopK)
+          })
+        )
+      );
+
+      // Merge records, dedup by URL (keep the record with the lowest rank).
+      const byUrl = new Map<string, (typeof allResults)[0]["records"][0]>();
+      for (const response of allResults) {
+        for (const item of response.records) {
+          const existing = byUrl.get(item.url);
+          if (!existing || item.rank < existing.rank) {
+            byUrl.set(item.url, item);
+          }
+        }
+      }
+
+      // Sort deduped records by rank ascending, then cap at searchTopK.
+      const deduped = [...byUrl.values()]
+        .sort((a, b) => a.rank - b.rank)
+        .slice(0, Math.max(1, this.config.searchTopK));
+
+      if (deduped.length > 0) {
+        const queryList = plan.searchQueries.join(", ");
+        const summary = deduped
           .map((item) => `${item.rank}. ${item.title} | ${item.url} | ${item.snippet}`)
           .join("\n");
 
         await this.config.memoryManager.addEvent({
           id: createId("event"),
           role: "tool",
-          text: `predictive evidence search: ${query}\n${summary}`,
+          text: `predictive evidence search: ${queryList}\n${summary}`,
           timestamp: Date.now(),
           metadata: {
             tool: "web.search.record",
             mode: "predictive-evidence",
-            query,
-            count: records.length,
-            records,
-            status: response.status,
-            error: response.error,
-            httpStatus: response.httpStatus
+            queries: plan.searchQueries,
+            count: deduped.length,
+            records: deduped,
+            status: allResults[0]?.status,
+            error: allResults[0]?.error,
+            httpStatus: allResults[0]?.httpStatus
           }
         });
 
-        const first = records[0];
+        // Fetch the top result page only (first of deduped list).
+        const first = deduped[0];
         if (first?.url && this.config.webPageFetcher) {
           const page = await this.config.webPageFetcher.fetch(first.url);
           if (page.status === "ok") {
@@ -73,8 +95,10 @@ export class ProactiveActuator {
         }
 
         evidenceSummary =
-          this.config.i18n?.t("proactive.evidence_suffix", { count: records.length }) ??
-          ` (added ${records.length} external evidence item(s))`;
+          this.config.i18n?.t("proactive.evidence_suffix", {
+            count: deduped.length
+          }) ??
+          ` (${plan.searchQueries.length} quer${plan.searchQueries.length === 1 ? "y" : "ies"}, ${deduped.length} evidence item(s))`;
       }
     }
 
