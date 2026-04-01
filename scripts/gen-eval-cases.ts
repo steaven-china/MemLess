@@ -248,7 +248,7 @@ OUTPUT FORMAT (strict JSON array, no markdown fences, no extra text):
       ...
     ],
     "query": "the query string",
-    "groundTruth": "exact substring that appears ONLY in blocks[0]",
+    "groundTruth": "exact substring that appears ONLY in ${spec.category === "multi-hop" ? "blocks[1]" : "blocks[0]"}",
     "topN": ${spec.topN},
     "note": "brief description of what this case tests"
   },
@@ -258,7 +258,7 @@ OUTPUT FORMAT (strict JSON array, no markdown fences, no extra text):
 REQUIREMENTS:
 1. Each case must have exactly ${spec.blockCount}.
 2. Each inner array is one block (containing one string = one event text).
-3. groundTruth MUST be a literal substring of blocks[0] text.
+3. groundTruth MUST be a literal substring of ${spec.category === "multi-hop" ? "blocks[1] (Block B)" : "blocks[0]"} text.
 4. groundTruth MUST NOT appear in any other block.
 5. IDs: use pattern "${spec.category}-gen-B${batchIdx}-NNN" (zero-padded 3-digit index).
 6. Vary topics widely — do not repeat the same domain across cases in this batch.
