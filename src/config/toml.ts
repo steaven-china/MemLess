@@ -231,6 +231,12 @@ function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignNumber(output, "relationCandidatePromoteScore", table.relationCandidatePromoteScore, filePath, `${fieldPath}.relationCandidatePromoteScore`);
   assignNumber(output, "relationCandidateDecay", table.relationCandidateDecay, filePath, `${fieldPath}.relationCandidateDecay`);
   assignBoolean(output, "relationConflictDetectionEnabled", table.relationConflictDetectionEnabled, filePath, `${fieldPath}.relationConflictDetectionEnabled`);
+  assignNumber(output, "hybridPrescreenRatio", table.hybridPrescreenRatio, filePath, `${fieldPath}.hybridPrescreenRatio`);
+  assignNumber(output, "hybridPrescreenMin", table.hybridPrescreenMin, filePath, `${fieldPath}.hybridPrescreenMin`);
+  assignNumber(output, "hybridPrescreenMax", table.hybridPrescreenMax, filePath, `${fieldPath}.hybridPrescreenMax`);
+  assignNumber(output, "hybridRerankMultiplier", table.hybridRerankMultiplier, filePath, `${fieldPath}.hybridRerankMultiplier`);
+  assignNumber(output, "hybridLocalCacheMaxEntries", table.hybridLocalCacheMaxEntries, filePath, `${fieldPath}.hybridLocalCacheMaxEntries`);
+  assignNumber(output, "hybridLocalCacheTtlMs", table.hybridLocalCacheTtlMs, filePath, `${fieldPath}.hybridLocalCacheTtlMs`);
   assignNumber(output, "agentMaxToolRounds", table.agentMaxToolRounds, filePath, `${fieldPath}.agentMaxToolRounds`);
 
   return output;
@@ -268,6 +274,9 @@ function mapComponent(value: unknown, filePath: string, fieldPath: string): Deep
   assignString(output, "tagsIntroPath", table.tagsIntroPath, filePath, `${fieldPath}.tagsIntroPath`);
   assignString(output, "tagsTomlPath", table.tagsTomlPath, filePath, `${fieldPath}.tagsTomlPath`);
   assignStringRecord(output, "tagsTemplateVars", table.tagsTemplateVars, filePath, `${fieldPath}.tagsTemplateVars`);
+  assignNumber(output, "localEmbedBatchWindowMs", table.localEmbedBatchWindowMs, filePath, `${fieldPath}.localEmbedBatchWindowMs`);
+  assignNumber(output, "localEmbedMaxBatchSize", table.localEmbedMaxBatchSize, filePath, `${fieldPath}.localEmbedMaxBatchSize`);
+  assignNumber(output, "localEmbedQueueMaxPending", table.localEmbedQueueMaxPending, filePath, `${fieldPath}.localEmbedQueueMaxPending`);
   assignString(output, "rawStoreBackend", table.rawStoreBackend, filePath, `${fieldPath}.rawStoreBackend`);
   assignString(output, "rawStoreFilePath", table.rawStoreFilePath, filePath, `${fieldPath}.rawStoreFilePath`);
   assignString(output, "relationStoreBackend", table.relationStoreBackend, filePath, `${fieldPath}.relationStoreBackend`);

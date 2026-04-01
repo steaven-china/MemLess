@@ -29,6 +29,12 @@ export interface LocalEmbedderConfig {
    * Default: HuggingFace Hub ("https://huggingface.co/").
    */
   mirror?: string;
+  /** auto-batch flush window in ms */
+  batchWindowMs?: number;
+  /** max texts per inference batch */
+  maxBatchSize?: number;
+  /** max pending embed requests before rejecting */
+  queueMaxPending?: number;
 }
 
 /**
@@ -56,12 +62,18 @@ export class LocalEmbedder implements IEmbedder {
   private readonly quantized: boolean;
   private readonly mirror: string | undefined;
   private readonly cacheKey: string;
+  private readonly batchWindowMs: number;
+  private readonly maxBatchSize: number;
+  private readonly queueMaxPending: number;
 
   constructor(config: LocalEmbedderConfig = {}) {
     this.modelName = config.model ?? "Xenova/multilingual-e5-small";
     this.quantized = config.quantized ?? true;
     this.mirror = config.mirror;
     this.cacheKey = `${this.modelName}:${this.quantized}`;
+    this.batchWindowMs = Math.max(1, config.batchWindowMs ?? 5);
+    this.maxBatchSize = Math.max(1, config.maxBatchSize ?? 32);
+    this.queueMaxPending = Math.max(this.maxBatchSize, config.queueMaxPending ?? 1024);
   }
 
   // ------------------------------------------------------------------ //
@@ -76,45 +88,50 @@ export class LocalEmbedder implements IEmbedder {
     reject: (err: unknown) => void;
   }> = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly batchWindowMs = 5; // flush after 5ms of inactivity
-  private readonly maxBatchSize = 32;  // cap to avoid OOM on huge batches
+  private flushInFlight = false;
 
   async embed(text: string, _options?: EmbedOptions): Promise<number[]> {
     return new Promise<number[]>((resolve, reject) => {
+      if (this.batchQueue.length >= this.queueMaxPending) {
+        reject(new Error(`LocalEmbedder queue overflow: pending=${this.batchQueue.length}, max=${this.queueMaxPending}`));
+        return;
+      }
       this.batchQueue.push({ text, resolve, reject });
 
       // If batch is full, flush immediately
       if (this.batchQueue.length >= this.maxBatchSize) {
-        if (this.batchTimer !== null) {
-          clearTimeout(this.batchTimer);
-          this.batchTimer = null;
-        }
+        this.clearBatchTimer();
         void this.flushBatch();
         return;
       }
 
-      // Otherwise, schedule a flush after the window
-      if (this.batchTimer === null) {
-        this.batchTimer = setTimeout(() => {
-          this.batchTimer = null;
-          void this.flushBatch();
-        }, this.batchWindowMs);
-      }
+      this.scheduleBatchFlush();
     });
   }
 
   private async flushBatch(): Promise<void> {
-    if (this.batchQueue.length === 0) return;
-    const batch = this.batchQueue.splice(0, this.maxBatchSize);
-
+    if (this.flushInFlight) return;
+    this.flushInFlight = true;
     try {
-      const texts = batch.map(item => item.text);
-      const vecs = await this.embedBatch(texts);
-      for (let i = 0; i < batch.length; i++) {
-        batch[i]!.resolve(vecs[i]!);
+      while (this.batchQueue.length > 0) {
+        const batch = this.batchQueue.splice(0, this.maxBatchSize);
+        try {
+          const texts = batch.map((item) => item.text);
+          const vecs = await this.embedBatchDirect(texts);
+          for (let index = 0; index < batch.length; index += 1) {
+            batch[index]!.resolve(vecs[index]!);
+          }
+        } catch (err) {
+          for (const item of batch) {
+            item.reject(err);
+          }
+        }
       }
-    } catch (err) {
-      for (const item of batch) item.reject(err);
+    } finally {
+      this.flushInFlight = false;
+      if (this.batchQueue.length > 0) {
+        this.scheduleBatchFlush();
+      }
     }
   }
 
@@ -124,18 +141,40 @@ export class LocalEmbedder implements IEmbedder {
    */
   async embedBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    if (texts.length === 1) return [await this.embed(texts[0]!)];
+    return this.embedBatchDirect(texts);
+  }
 
+  private async embedBatchDirect(texts: string[]): Promise<number[][]> {
     const pipe = await this.getPipeline();
-    const result = await (pipe as (t: string[], o: object) => Promise<{ dims: number[]; data: ArrayLike<number> }>)(
-      texts,
-      { pooling: "mean", normalize: true }
-    );
+    if (texts.length === 1) {
+      const single = await (
+        pipe as (
+          input: string,
+          options: { pooling: string; normalize: boolean }
+        ) => Promise<{ data: ArrayLike<number> }>
+      )(texts[0]!, { pooling: "mean", normalize: true });
+      return [Array.from(single.data)];
+    }
 
-    // result.dims = [batchSize, hiddenDim]
-    const hiddenDim = result.dims[1]!;
+    const result = await (
+      pipe as (
+        input: string[],
+        options: { pooling: string; normalize: boolean }
+      ) => Promise<{ dims: number[]; data: ArrayLike<number> }>
+    )(texts, { pooling: "mean", normalize: true });
+
+    const hiddenDim = result.dims[1];
+    if (!hiddenDim || hiddenDim <= 0) {
+      throw new Error(`LocalEmbedder invalid batch dims: ${JSON.stringify(result.dims)}`);
+    }
     const flat = Array.from(result.data);
-    return texts.map((_, i) => flat.slice(i * hiddenDim, (i + 1) * hiddenDim));
+    const expected = texts.length * hiddenDim;
+    if (flat.length < expected) {
+      throw new Error(
+        `LocalEmbedder invalid batch data length: got=${flat.length}, expected=${expected}`
+      );
+    }
+    return texts.map((_, index) => flat.slice(index * hiddenDim, (index + 1) * hiddenDim));
   }
 
   // ------------------------------------------------------------------ //
@@ -166,5 +205,19 @@ export class LocalEmbedder implements IEmbedder {
       quantized: this.quantized
     });
     return pipe as unknown as EmbeddingPipeline;
+  }
+
+  private scheduleBatchFlush(): void {
+    if (this.batchTimer !== null) return;
+    this.batchTimer = setTimeout(() => {
+      this.batchTimer = null;
+      void this.flushBatch();
+    }, this.batchWindowMs);
+  }
+
+  private clearBatchTimer(): void {
+    if (this.batchTimer === null) return;
+    clearTimeout(this.batchTimer);
+    this.batchTimer = null;
   }
 }

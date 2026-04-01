@@ -177,5 +177,12 @@ export interface ManagerConfig {
   relationCandidatePromoteScore: number;
   relationCandidateDecay: number;
   relationConflictDetectionEnabled: boolean;
+  // Hybrid retrieval tuning
+  hybridPrescreenRatio: number;
+  hybridPrescreenMin: number;
+  hybridPrescreenMax: number;
+  hybridRerankMultiplier: number;
+  hybridLocalCacheMaxEntries: number;
+  hybridLocalCacheTtlMs: number;
   agentMaxToolRounds: number;
 }

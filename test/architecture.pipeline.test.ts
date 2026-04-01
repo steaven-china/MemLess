@@ -61,68 +61,72 @@ describe("Architecture pipeline", () => {
     expect(context.prediction).toBeDefined();
   });
 
-  test("persists blocks/raw-events/relations with file backends across restarts", async () => {
-    const folder = await fs.mkdtemp(join(tmpdir(), "mlex-arch-"));
-    const lanceDbDir = join(folder, "lancedb");
-    const rawFile = join(folder, "raw-events.json");
-    const relationFile = join(folder, "relations.json");
+  test(
+    "persists blocks/raw-events/relations with file backends across restarts",
+    { timeout: 30_000 },
+    async () => {
+      const folder = await fs.mkdtemp(join(tmpdir(), "mlex-arch-"));
+      const lanceDbDir = join(folder, "lancedb");
+      const rawFile = join(folder, "raw-events.json");
+      const relationFile = join(folder, "relations.json");
 
-    const runtime1 = createRuntime({
-      component: {
-        storageBackend: "lance",
-        lanceDbPath: lanceDbDir,
-        rawStoreBackend: "file",
-        rawStoreFilePath: rawFile,
-        relationStoreBackend: "file",
-        relationStoreFilePath: relationFile
-      },
-      manager: {
-        predictionEnabled: true
-      }
-    });
+      const runtime1 = createRuntime({
+        component: {
+          storageBackend: "lance",
+          lanceDbPath: lanceDbDir,
+          rawStoreBackend: "file",
+          rawStoreFilePath: rawFile,
+          relationStoreBackend: "file",
+          relationStoreFilePath: relationFile
+        },
+        manager: {
+          predictionEnabled: true
+        }
+      });
 
-    const now = Date.now();
-    await runtime1.memoryManager.addEvent({
-      id: createId("event"),
-      role: "user",
-      text: "任务A：先完成需求分析。",
-      timestamp: now
-    });
-    await runtime1.memoryManager.sealCurrentBlock();
-    await runtime1.memoryManager.addEvent({
-      id: createId("event"),
-      role: "assistant",
-      text: "任务B：根据分析结果实施开发。",
-      timestamp: now + 20
-    });
-    await runtime1.memoryManager.sealCurrentBlock();
-    await runtime1.memoryManager.flushAsyncRelations();
+      const now = Date.now();
+      await runtime1.memoryManager.addEvent({
+        id: createId("event"),
+        role: "user",
+        text: "任务A：先完成需求分析。",
+        timestamp: now
+      });
+      await runtime1.memoryManager.sealCurrentBlock();
+      await runtime1.memoryManager.addEvent({
+        id: createId("event"),
+        role: "assistant",
+        text: "任务B：根据分析结果实施开发。",
+        timestamp: now + 20
+      });
+      await runtime1.memoryManager.sealCurrentBlock();
+      await runtime1.memoryManager.flushAsyncRelations();
 
-    const runtime2 = createRuntime({
-      component: {
-        storageBackend: "lance",
-        lanceDbPath: lanceDbDir,
-        rawStoreBackend: "file",
-        rawStoreFilePath: rawFile,
-        relationStoreBackend: "file",
-        relationStoreFilePath: relationFile
-      },
-      manager: {
-        predictionEnabled: true
-      }
-    });
+      const runtime2 = createRuntime({
+        component: {
+          storageBackend: "lance",
+          lanceDbPath: lanceDbDir,
+          rawStoreBackend: "file",
+          rawStoreFilePath: rawFile,
+          relationStoreBackend: "file",
+          relationStoreFilePath: relationFile
+        },
+        manager: {
+          predictionEnabled: true
+        }
+      });
 
-    const context = await runtime2.memoryManager.getContext("下一步是什么");
-    expect(context.blocks.length).toBeGreaterThan(0);
+      const context = await runtime2.memoryManager.getContext("下一步是什么");
+      expect(context.blocks.length).toBeGreaterThan(0);
 
-    const relationPayload = JSON.parse(await fs.readFile(relationFile, "utf8")) as Array<{
-      type?: string;
-    }>;
-    expect(relationPayload.some((relation) => relation.type === "FOLLOWS")).toBe(true);
+      const relationPayload = JSON.parse(await fs.readFile(relationFile, "utf8")) as Array<{
+        type?: string;
+      }>;
+      expect(relationPayload.some((relation) => relation.type === "FOLLOWS")).toBe(true);
 
-    const rawPayload = JSON.parse(await fs.readFile(rawFile, "utf8")) as Record<string, unknown>;
-    expect(Object.keys(rawPayload).length).toBeGreaterThan(0);
-  }, { timeout: 30_000 });
+      const rawPayload = JSON.parse(await fs.readFile(rawFile, "utf8")) as Record<string, unknown>;
+      expect(Object.keys(rawPayload).length).toBeGreaterThan(0);
+    }
+  );
 
   test("persists blocks/raw-events/relations with sqlite backends across restarts", async () => {
     const folder = await fs.mkdtemp(join(tmpdir(), "mlex-arch-sqlite-"));

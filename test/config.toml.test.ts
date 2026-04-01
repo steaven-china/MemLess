@@ -273,6 +273,39 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     expect(config.manager.relationConflictDetectionEnabled).toBe(true);
   });
 
+  test("loads hybrid and local embed tuning config from toml file", async () => {
+    const filePath = await makeTempPath();
+    await writeFile(
+      filePath,
+      [
+        "[manager]",
+        "hybridPrescreenRatio = 0.12",
+        "hybridPrescreenMin = 24",
+        "hybridPrescreenMax = 180",
+        "hybridRerankMultiplier = 4",
+        "hybridLocalCacheMaxEntries = 4096",
+        "hybridLocalCacheTtlMs = 120000",
+        "",
+        "[component]",
+        "localEmbedBatchWindowMs = 7",
+        "localEmbedMaxBatchSize = 48",
+        "localEmbedQueueMaxPending = 2048"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const config = loadConfig({}, { userTomlPath: filePath });
+    expect(config.manager.hybridPrescreenRatio).toBe(0.12);
+    expect(config.manager.hybridPrescreenMin).toBe(24);
+    expect(config.manager.hybridPrescreenMax).toBe(180);
+    expect(config.manager.hybridRerankMultiplier).toBe(4);
+    expect(config.manager.hybridLocalCacheMaxEntries).toBe(4096);
+    expect(config.manager.hybridLocalCacheTtlMs).toBe(120000);
+    expect(config.component.localEmbedBatchWindowMs).toBe(7);
+    expect(config.component.localEmbedMaxBatchSize).toBe(48);
+    expect(config.component.localEmbedQueueMaxPending).toBe(2048);
+  });
+
   test("loads sqlite worker flag from toml file", async () => {
     const filePath = await makeTempPath();
     await writeFile(

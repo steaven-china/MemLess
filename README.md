@@ -327,6 +327,55 @@ npx mlex chat --tags-intro "D:\Work Space\MLEX\AgentDocs\TagsIntro.md"
 
 ---
 
+## Hybrid Performance Tuning
+
+Hybrid retrieval now supports full performance knobs through `config.toml`, env, and CLI overrides.
+
+### `config.toml` example
+
+```toml
+[manager]
+hybridPrescreenRatio = 0.05
+hybridPrescreenMin = 20
+hybridPrescreenMax = 100
+hybridRerankMultiplier = 3
+hybridLocalCacheMaxEntries = 2000
+hybridLocalCacheTtlMs = 300000
+
+[component]
+localEmbedBatchWindowMs = 5
+localEmbedMaxBatchSize = 32
+localEmbedQueueMaxPending = 1024
+```
+
+### PowerShell env example
+
+```powershell
+$env:MLEX_HYBRID_PRESCREEN_RATIO = "0.05"
+$env:MLEX_HYBRID_PRESCREEN_MIN = "20"
+$env:MLEX_HYBRID_PRESCREEN_MAX = "100"
+$env:MLEX_HYBRID_RERANK_MULTIPLIER = "3"
+$env:MLEX_HYBRID_LOCAL_CACHE_MAX = "2000"
+$env:MLEX_HYBRID_LOCAL_CACHE_TTL_MS = "300000"
+$env:MLEX_LOCAL_EMBED_BATCH_WINDOW_MS = "5"
+$env:MLEX_LOCAL_EMBED_MAX_BATCH_SIZE = "32"
+$env:MLEX_LOCAL_EMBED_QUEUE_MAX_PENDING = "1024"
+```
+
+### CLI overrides
+
+- `--hybrid-prescreen-ratio <number>`
+- `--hybrid-prescreen-min <number>`
+- `--hybrid-prescreen-max <number>`
+- `--hybrid-rerank-multiplier <number>`
+- `--hybrid-local-cache-max <number>`
+- `--hybrid-local-cache-ttl-ms <number>`
+- `--local-embed-batch-window-ms <number>`
+- `--local-embed-max-batch-size <number>`
+- `--local-embed-queue-max-pending <number>`
+
+---
+
 ## Tool-Call Persistence (Important)
 
 The following tool results can be written into memory:

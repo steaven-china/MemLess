@@ -528,6 +528,7 @@ describe("Semantic eval v2 — keyword-distractor cases", () => {
 
   test(
     "all cases with distractor blocks",
+    { timeout: 180_000 },
     async () => {
       const results: CaseResult[] = [];
       for (const c of CASES) results.push(await runCase(c));
@@ -562,7 +563,6 @@ describe("Semantic eval v2 — keyword-distractor cases", () => {
           `${cat} passRate ${rate.toFixed(2)} < ${threshold} (embedder=${embedder})`
         ).toBeGreaterThanOrEqual(threshold);
       }
-    },
-    { timeout: 180_000 }
+    }
   );
 });

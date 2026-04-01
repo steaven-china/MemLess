@@ -53,6 +53,9 @@ export interface ComponentConfig {
   embedder: "hash" | "local" | "hybrid";
   embeddingModel: string;
   embeddingMirror?: string;
+  localEmbedBatchWindowMs: number;
+  localEmbedMaxBatchSize: number;
+  localEmbedQueueMaxPending: number;
   lanceFilePath: string;
   lanceDbPath: string;
   chromaBaseUrl?: string;
@@ -101,6 +104,10 @@ export interface AppConfig {
 export type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
+
+const DEFAULT_LOCAL_EMBED_BATCH_WINDOW_MS = 5;
+const DEFAULT_LOCAL_EMBED_MAX_BATCH_SIZE = 32;
+const DEFAULT_LOCAL_EMBED_QUEUE_MAX_PENDING = 1024;
 
 export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   maxTokensPerBlock: 320,
@@ -174,6 +181,13 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   relationCandidatePromoteScore: 0.65,
   relationCandidateDecay: 0.85,
   relationConflictDetectionEnabled: true,
+  // Hybrid retrieval tuning defaults
+  hybridPrescreenRatio: 0.05,
+  hybridPrescreenMin: 20,
+  hybridPrescreenMax: 100,
+  hybridRerankMultiplier: 3,
+  hybridLocalCacheMaxEntries: 2000,
+  hybridLocalCacheTtlMs: 300_000,
   agentMaxToolRounds: 12
 };
 
@@ -428,6 +442,30 @@ export function loadConfig(
     ),
     relationConflictDetectionEnabled:
       (process.env.MLEX_RELATION_CONFLICT_DETECTION_ENABLED ?? "true").toLowerCase() === "true",
+    hybridPrescreenRatio: parseEnvFloat(
+      "MLEX_HYBRID_PRESCREEN_RATIO",
+      DEFAULT_MANAGER_CONFIG.hybridPrescreenRatio
+    ),
+    hybridPrescreenMin: parseEnvNumber(
+      "MLEX_HYBRID_PRESCREEN_MIN",
+      DEFAULT_MANAGER_CONFIG.hybridPrescreenMin
+    ),
+    hybridPrescreenMax: parseEnvNumber(
+      "MLEX_HYBRID_PRESCREEN_MAX",
+      DEFAULT_MANAGER_CONFIG.hybridPrescreenMax
+    ),
+    hybridRerankMultiplier: parseEnvFloat(
+      "MLEX_HYBRID_RERANK_MULTIPLIER",
+      DEFAULT_MANAGER_CONFIG.hybridRerankMultiplier
+    ),
+    hybridLocalCacheMaxEntries: parseEnvNumber(
+      "MLEX_HYBRID_LOCAL_CACHE_MAX",
+      DEFAULT_MANAGER_CONFIG.hybridLocalCacheMaxEntries
+    ),
+    hybridLocalCacheTtlMs: parseEnvNumber(
+      "MLEX_HYBRID_LOCAL_CACHE_TTL_MS",
+      DEFAULT_MANAGER_CONFIG.hybridLocalCacheTtlMs
+    ),
     agentMaxToolRounds: Math.max(
       1,
       parseEnvNumber("MLEX_AGENT_MAX_TOOL_ROUNDS", DEFAULT_MANAGER_CONFIG.agentMaxToolRounds)
@@ -455,6 +493,18 @@ export function loadConfig(
       (environment.nodeEnv === "test" ? "hash" : "local"),
     embeddingModel: process.env.MLEX_EMBEDDING_MODEL ?? "Xenova/multilingual-e5-small",
     embeddingMirror: process.env.MLEX_EMBEDDING_MIRROR,
+    localEmbedBatchWindowMs: parseEnvNumber(
+      "MLEX_LOCAL_EMBED_BATCH_WINDOW_MS",
+      DEFAULT_LOCAL_EMBED_BATCH_WINDOW_MS
+    ),
+    localEmbedMaxBatchSize: parseEnvNumber(
+      "MLEX_LOCAL_EMBED_MAX_BATCH_SIZE",
+      DEFAULT_LOCAL_EMBED_MAX_BATCH_SIZE
+    ),
+    localEmbedQueueMaxPending: parseEnvNumber(
+      "MLEX_LOCAL_EMBED_QUEUE_MAX_PENDING",
+      DEFAULT_LOCAL_EMBED_QUEUE_MAX_PENDING
+    ),
     chromaBaseUrl: process.env.MLEX_CHROMA_BASE_URL,
     chromaCollectionId: process.env.MLEX_CHROMA_COLLECTION,
     chromaApiKey: process.env.MLEX_CHROMA_API_KEY,
@@ -557,12 +607,60 @@ function validateConfig(config: AppConfig): AppConfig {
     "scheduled",
     "predictive"
   ]);
+  validateRange("manager.hybridPrescreenRatio", config.manager.hybridPrescreenRatio, 0, 1);
+  validateIntegerAtLeast("manager.hybridPrescreenMin", config.manager.hybridPrescreenMin, 1);
+  validateIntegerAtLeast("manager.hybridPrescreenMax", config.manager.hybridPrescreenMax, 1);
+  if (config.manager.hybridPrescreenMin > config.manager.hybridPrescreenMax) {
+    throw new Error(
+      `Invalid manager hybrid prescreen bounds: min=${config.manager.hybridPrescreenMin}, max=${config.manager.hybridPrescreenMax}`
+    );
+  }
+  validateAtLeast("manager.hybridRerankMultiplier", config.manager.hybridRerankMultiplier, 1);
+  validateIntegerAtLeast(
+    "manager.hybridLocalCacheMaxEntries",
+    config.manager.hybridLocalCacheMaxEntries,
+    0
+  );
+  validateIntegerAtLeast("manager.hybridLocalCacheTtlMs", config.manager.hybridLocalCacheTtlMs, 0);
+  validateIntegerAtLeast(
+    "component.localEmbedBatchWindowMs",
+    config.component.localEmbedBatchWindowMs,
+    1
+  );
+  validateIntegerAtLeast(
+    "component.localEmbedMaxBatchSize",
+    config.component.localEmbedMaxBatchSize,
+    1
+  );
+  validateIntegerAtLeast(
+    "component.localEmbedQueueMaxPending",
+    config.component.localEmbedQueueMaxPending,
+    1
+  );
   return config;
 }
 
 function validateEnum(name: string, value: string, allowed: string[]): void {
   if (allowed.includes(value)) return;
   throw new Error(`Invalid ${name}: ${value}. Allowed values: ${allowed.join(", ")}`);
+}
+
+function validateRange(name: string, value: number, min: number, max: number): void {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`Invalid ${name}: ${value}. Expected finite number in [${min}, ${max}].`);
+  }
+}
+
+function validateAtLeast(name: string, value: number, min: number): void {
+  if (!Number.isFinite(value) || value < min) {
+    throw new Error(`Invalid ${name}: ${value}. Expected finite number >= ${min}.`);
+  }
+}
+
+function validateIntegerAtLeast(name: string, value: number, min: number): void {
+  if (!Number.isInteger(value) || value < min) {
+    throw new Error(`Invalid ${name}: ${value}. Expected integer >= ${min}.`);
+  }
 }
 
 function parseEnvNumber(name: string, defaultValue: number): number {

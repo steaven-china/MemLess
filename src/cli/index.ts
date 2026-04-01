@@ -62,6 +62,15 @@ const optionDescriptions = {
   webBodyMaxBytes: i18n.t("cli.option.web_body_max_bytes"),
   debugTrace: i18n.t("cli.option.debug_trace"),
   debugTraceMax: i18n.t("cli.option.debug_trace_max"),
+  hybridPrescreenRatio: i18n.t("cli.option.hybrid_prescreen_ratio"),
+  hybridPrescreenMin: i18n.t("cli.option.hybrid_prescreen_min"),
+  hybridPrescreenMax: i18n.t("cli.option.hybrid_prescreen_max"),
+  hybridRerankMultiplier: i18n.t("cli.option.hybrid_rerank_multiplier"),
+  hybridLocalCacheMax: i18n.t("cli.option.hybrid_local_cache_max"),
+  hybridLocalCacheTtlMs: i18n.t("cli.option.hybrid_local_cache_ttl_ms"),
+  localEmbedBatchWindowMs: i18n.t("cli.option.local_embed_batch_window_ms"),
+  localEmbedMaxBatchSize: i18n.t("cli.option.local_embed_max_batch_size"),
+  localEmbedQueueMaxPending: i18n.t("cli.option.local_embed_queue_max_pending"),
   stream: i18n.t("cli.option.stream"),
   maxTokens: i18n.t("cli.option.max_tokens"),
   showContext: i18n.t("cli.option.show_context"),
@@ -126,6 +135,15 @@ program
   .option("--web-body-max-bytes <number>", optionDescriptions.webBodyMaxBytes)
   .option("--debug-trace <enabled>", optionDescriptions.debugTrace)
   .option("--debug-trace-max <number>", optionDescriptions.debugTraceMax)
+  .option("--hybrid-prescreen-ratio <number>", optionDescriptions.hybridPrescreenRatio)
+  .option("--hybrid-prescreen-min <number>", optionDescriptions.hybridPrescreenMin)
+  .option("--hybrid-prescreen-max <number>", optionDescriptions.hybridPrescreenMax)
+  .option("--hybrid-rerank-multiplier <number>", optionDescriptions.hybridRerankMultiplier)
+  .option("--hybrid-local-cache-max <number>", optionDescriptions.hybridLocalCacheMax)
+  .option("--hybrid-local-cache-ttl-ms <number>", optionDescriptions.hybridLocalCacheTtlMs)
+  .option("--local-embed-batch-window-ms <number>", optionDescriptions.localEmbedBatchWindowMs)
+  .option("--local-embed-max-batch-size <number>", optionDescriptions.localEmbedMaxBatchSize)
+  .option("--local-embed-queue-max-pending <number>", optionDescriptions.localEmbedQueueMaxPending)
   .option("--include-tags-intro <enabled>", optionDescriptions.includeTagsIntro)
   .option("--tags-intro <path>", optionDescriptions.tagsIntro)
   .option("--tags-toml <path>", optionDescriptions.tagsToml)
@@ -338,6 +356,15 @@ function applyAgentRuntimeOptions(command: Command): void {
     .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
     .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
     .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
+    .option("--hybrid-prescreen-ratio <number>", optionDescriptions.hybridPrescreenRatio)
+    .option("--hybrid-prescreen-min <number>", optionDescriptions.hybridPrescreenMin)
+    .option("--hybrid-prescreen-max <number>", optionDescriptions.hybridPrescreenMax)
+    .option("--hybrid-rerank-multiplier <number>", optionDescriptions.hybridRerankMultiplier)
+    .option("--hybrid-local-cache-max <number>", optionDescriptions.hybridLocalCacheMax)
+    .option("--hybrid-local-cache-ttl-ms <number>", optionDescriptions.hybridLocalCacheTtlMs)
+    .option("--local-embed-batch-window-ms <number>", optionDescriptions.localEmbedBatchWindowMs)
+    .option("--local-embed-max-batch-size <number>", optionDescriptions.localEmbedMaxBatchSize)
+    .option("--local-embed-queue-max-pending <number>", optionDescriptions.localEmbedQueueMaxPending)
     .option("--include-tags-intro <enabled>", optionDescriptions.includeTagsIntro)
     .option("--tags-intro <path>", optionDescriptions.tagsIntro)
     .option("--tags-toml <path>", optionDescriptions.tagsToml)
@@ -395,7 +422,10 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       webAdminToken: asOptionalString(options.webAdminToken),
       webRequestBodyMaxBytes: parseOptionalNumber(asOptionalString(options.webBodyMaxBytes)),
       debugTraceEnabled: parseOptionalBoolean(asOptionalString(options.debugTrace)),
-      debugTraceMaxEntries: parseOptionalNumber(asOptionalString(options.debugTraceMax))
+      debugTraceMaxEntries: parseOptionalNumber(asOptionalString(options.debugTraceMax)),
+      localEmbedBatchWindowMs: parseOptionalNumber(asOptionalString(options.localEmbedBatchWindowMs)),
+      localEmbedMaxBatchSize: parseOptionalNumber(asOptionalString(options.localEmbedMaxBatchSize)),
+      localEmbedQueueMaxPending: parseOptionalNumber(asOptionalString(options.localEmbedQueueMaxPending))
     },
     manager: {
       maxTokensPerBlock: parseOptionalNumber(asOptionalString(options.maxTokens)),
@@ -414,7 +444,13 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       proactiveTimerEnabled: parseOptionalBoolean(asOptionalString(options.proactiveTimer)),
       proactiveTimerIntervalSeconds: parseOptionalNumber(
         asOptionalString(options.proactiveTimerIntervalSeconds)
-      )
+      ),
+      hybridPrescreenRatio: parseOptionalFloat(asOptionalString(options.hybridPrescreenRatio)),
+      hybridPrescreenMin: parseOptionalNumber(asOptionalString(options.hybridPrescreenMin)),
+      hybridPrescreenMax: parseOptionalNumber(asOptionalString(options.hybridPrescreenMax)),
+      hybridRerankMultiplier: parseOptionalFloat(asOptionalString(options.hybridRerankMultiplier)),
+      hybridLocalCacheMaxEntries: parseOptionalNumber(asOptionalString(options.hybridLocalCacheMax)),
+      hybridLocalCacheTtlMs: parseOptionalNumber(asOptionalString(options.hybridLocalCacheTtlMs))
     }
   };
 }
@@ -427,6 +463,12 @@ function asOptionalString(value: unknown): string | undefined {
 function parseOptionalNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalFloat(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 

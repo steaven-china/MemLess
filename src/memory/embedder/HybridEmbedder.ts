@@ -6,20 +6,19 @@ import { LocalEmbedder } from "./LocalEmbedder.js";
  * HybridEmbedder: 分块级混合策略
  *
  * 设计目标：
- * - 重要块用 hybrid（双保险）
- * - 大块用 local（信息密度高，值得算准）
- * - 小块用 hash（快速过滤）
+ * - 查询向量固定 hybrid（hash + local），保证检索空间兼容
+ * - 封块默认 hash-only，控制写入时延
+ * - 仅重要块（important/conflict）在写入时使用 hybrid
  *
  * 向量格式（固定 1024 维）：
  *   [256维 hash | 768维 local]
  *
  * 三种模式：
  * - hash-only:  [hash_vec | zeros(768)]  — 小块/碎片
- * - local-only: [zeros(256) | local_vec]  — 大块（>100 token）
+ * - local-only: [zeros(256) | local_vec]
  * - hybrid:     [hash_vec | local_vec]    — 重要块（important/conflict 标签）
  *
  * 策略配置：
- * - tokenThreshold: token 数阈值，超过则用 local（默认 100）
  * - forceHybridTags: 强制用 hybrid 的标签（默认 ["important", "conflict"]）
  * - mode: "auto" | "hash-only" | "local-only" | "hybrid"
  *
@@ -38,8 +37,12 @@ export interface HybridEmbedderConfig {
   localModel?: string;
   /** Local 模型镜像地址 */
   localMirror?: string;
-  /** Token 数阈值，超过此值用 local（默认 100） */
-  tokenThreshold?: number;
+  /** Local auto-batch flush window */
+  localBatchWindowMs?: number;
+  /** Local max batch size */
+  localMaxBatchSize?: number;
+  /** Local queue max pending */
+  localQueueMaxPending?: number;
   /** 强制使用 hybrid 的标签列表（默认 ["important", "conflict"]） */
   forceHybridTags?: string[];
   /** 默认模式（默认 "auto"） */
@@ -51,20 +54,21 @@ export class HybridEmbedder implements IEmbedder {
   private readonly localEmbedder: LocalEmbedder;
   private readonly hashDim: number;
   private readonly localDim = 768; // bge-small-zh-v1.5 固定维度
-  private readonly tokenThreshold: number;
   private readonly forceHybridTags: Set<string>;
   private readonly defaultMode: "auto" | "hash-only" | "local-only" | "hybrid";
 
   constructor(config: HybridEmbedderConfig = {}) {
     this.hashDim = config.hashDim ?? 256;
-    this.tokenThreshold = config.tokenThreshold ?? 100;
     this.forceHybridTags = new Set(config.forceHybridTags ?? ["important", "conflict"]);
     this.defaultMode = config.defaultMode ?? "auto";
 
     this.hashEmbedder = new HashEmbedder(this.hashDim, config.hashSeed);
     this.localEmbedder = new LocalEmbedder({
       model: config.localModel,
-      mirror: config.localMirror
+      mirror: config.localMirror,
+      batchWindowMs: config.localBatchWindowMs,
+      maxBatchSize: config.localMaxBatchSize,
+      queueMaxPending: config.localQueueMaxPending
     });
   }
 
@@ -121,7 +125,7 @@ export class HybridEmbedder implements IEmbedder {
     if (options?.mode) return options.mode;
 
     // 非 auto 模式直接返回
-    if (this.defaultMode !== "auto") return this.defaultMode as any;
+    if (this.defaultMode !== "auto") return this.defaultMode;
 
     // 没有 options → 查询调用 → 必须用 hybrid（保证与所有块格式兼容）
     if (!options) return "hybrid";
@@ -288,5 +292,13 @@ export class HybridEmbedder implements IEmbedder {
    */
   get dimension(): number {
     return this.hashDim + this.localDim;
+  }
+
+  get hashDimension(): number {
+    return this.hashDim;
+  }
+
+  get localDimension(): number {
+    return this.localDim;
   }
 }

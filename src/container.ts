@@ -17,7 +17,8 @@ import type { IChunkStrategy } from "./memory/chunking/IChunkStrategy.js";
 import { SemanticBoundaryChunkStrategy } from "./memory/chunking/SemanticBoundaryChunkStrategy.js";
 import { HashEmbedder } from "./memory/embedder/HashEmbedder.js";
 import { LocalEmbedder } from "./memory/embedder/LocalEmbedder.js";
-import { HybridEmbedder } from "./memory/embedder/HybridEmbedder.js";import { HistoryMatchCalculator } from "./memory/management/HistoryMatchCalculator.js";
+import { HybridEmbedder } from "./memory/embedder/HybridEmbedder.js";
+import { HistoryMatchCalculator } from "./memory/management/HistoryMatchCalculator.js";
 import { buildTagger } from "./memory/tagger/taggerFactory.js";
 import { normalizeAllowedAiTags } from "./memory/tagger/TagNormalizer.js";
 import {
@@ -259,7 +260,17 @@ function registerCoreDependencies(input: {
       if (config.component.embedder === "hybrid") {
         const embedder = container.resolve("embedder") as HybridEmbedder;
         const blockStore = container.resolve<IBlockStore>("blockStore");
-        return new HybridVectorStore(embedder, blockStore);
+        const traceRecorder = container.resolve<IDebugTraceRecorder>("debugTraceRecorder");
+        return new HybridVectorStore(embedder, blockStore, {
+          prescreenRatio: config.manager.hybridPrescreenRatio,
+          prescreenMin: config.manager.hybridPrescreenMin,
+          prescreenMax: config.manager.hybridPrescreenMax,
+          rerankMultiplier: config.manager.hybridRerankMultiplier,
+          localCacheMaxEntries: config.manager.hybridLocalCacheMaxEntries,
+          localCacheTtlMs: config.manager.hybridLocalCacheTtlMs,
+          nowMs,
+          trace: (event, payload) => traceRecorder.record("vector.hybrid", event, payload)
+        });
       }
       return new InMemoryVectorStore();
     }
@@ -275,7 +286,10 @@ function registerCoreDependencies(input: {
     if (config.component.embedder === "local") {
       return new LocalEmbedder({
         model: config.component.embeddingModel,
-        mirror: config.component.embeddingMirror
+        mirror: config.component.embeddingMirror,
+        batchWindowMs: config.component.localEmbedBatchWindowMs,
+        maxBatchSize: config.component.localEmbedMaxBatchSize,
+        queueMaxPending: config.component.localEmbedQueueMaxPending
       });
     }
     if (config.component.embedder === "hybrid") {
@@ -284,8 +298,10 @@ function registerCoreDependencies(input: {
         hashSeed: config.manager.embeddingSeed,
         localModel: config.component.embeddingModel,
         localMirror: config.component.embeddingMirror,
-        tokenThreshold: 100,  // 大于 100 token 用 local
-        forceHybridTags: ["important", "conflict"],  // 重要块用 hybrid
+        localBatchWindowMs: config.component.localEmbedBatchWindowMs,
+        localMaxBatchSize: config.component.localEmbedMaxBatchSize,
+        localQueueMaxPending: config.component.localEmbedQueueMaxPending,
+        forceHybridTags: ["important", "conflict"],
         defaultMode: "auto"
       });
     }
