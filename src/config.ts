@@ -194,6 +194,16 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   relationCandidatePromoteScore: 0.65,
   relationCandidateDecay: 0.85,
   relationConflictDetectionEnabled: true,
+  chunkManifestEnabled: false,
+  chunkAffectsRetrieval: false,
+  chunkManifestTargetTokens: 1000,
+  chunkManifestMaxTokens: 1400,
+  chunkManifestMaxBlocks: 8,
+  chunkManifestMaxGapMs: 900_000,
+  chunkNeighborExpandEnabled: false,
+  chunkNeighborWindow: 1,
+  chunkNeighborScoreGate: 0.75,
+  chunkMaxExpandedBlocks: 4,
   // Hybrid retrieval tuning defaults
   hybridPrescreenRatio: 0.05,
   hybridPrescreenMin: 20,
@@ -501,6 +511,40 @@ export function loadConfig(
     ),
     relationConflictDetectionEnabled:
       (process.env.MLEX_RELATION_CONFLICT_DETECTION_ENABLED ?? "true").toLowerCase() === "true",
+    chunkManifestEnabled:
+      (process.env.MLEX_CHUNK_MANIFEST_ENABLED ?? "false").toLowerCase() === "true",
+    chunkAffectsRetrieval:
+      (process.env.MLEX_CHUNK_AFFECTS_RETRIEVAL ?? "false").toLowerCase() === "true",
+    chunkManifestTargetTokens: parseEnvNumber(
+      "MLEX_CHUNK_MANIFEST_TARGET_TOKENS",
+      DEFAULT_MANAGER_CONFIG.chunkManifestTargetTokens
+    ),
+    chunkManifestMaxTokens: parseEnvNumber(
+      "MLEX_CHUNK_MANIFEST_MAX_TOKENS",
+      DEFAULT_MANAGER_CONFIG.chunkManifestMaxTokens
+    ),
+    chunkManifestMaxBlocks: parseEnvNumber(
+      "MLEX_CHUNK_MANIFEST_MAX_BLOCKS",
+      DEFAULT_MANAGER_CONFIG.chunkManifestMaxBlocks
+    ),
+    chunkManifestMaxGapMs: parseEnvNumber(
+      "MLEX_CHUNK_MANIFEST_MAX_GAP_MS",
+      DEFAULT_MANAGER_CONFIG.chunkManifestMaxGapMs
+    ),
+    chunkNeighborExpandEnabled:
+      (process.env.MLEX_CHUNK_NEIGHBOR_EXPAND_ENABLED ?? "false").toLowerCase() === "true",
+    chunkNeighborWindow: parseEnvNumber(
+      "MLEX_CHUNK_NEIGHBOR_WINDOW",
+      DEFAULT_MANAGER_CONFIG.chunkNeighborWindow
+    ),
+    chunkNeighborScoreGate: parseEnvFloat(
+      "MLEX_CHUNK_NEIGHBOR_SCORE_GATE",
+      DEFAULT_MANAGER_CONFIG.chunkNeighborScoreGate
+    ),
+    chunkMaxExpandedBlocks: parseEnvNumber(
+      "MLEX_CHUNK_MAX_EXPANDED_BLOCKS",
+      DEFAULT_MANAGER_CONFIG.chunkMaxExpandedBlocks
+    ),
     hybridPrescreenRatio: parseEnvFloat(
       "MLEX_HYBRID_PRESCREEN_RATIO",
       DEFAULT_MANAGER_CONFIG.hybridPrescreenRatio
@@ -684,6 +728,32 @@ function validateConfig(config: AppConfig): AppConfig {
     "scheduled",
     "predictive"
   ]);
+  validateIntegerAtLeast(
+    "manager.chunkManifestTargetTokens",
+    config.manager.chunkManifestTargetTokens,
+    1
+  );
+  validateIntegerAtLeast(
+    "manager.chunkManifestMaxTokens",
+    config.manager.chunkManifestMaxTokens,
+    0
+  );
+  validateIntegerAtLeast("manager.chunkManifestMaxBlocks", config.manager.chunkManifestMaxBlocks, 0);
+  validateIntegerAtLeast("manager.chunkManifestMaxGapMs", config.manager.chunkManifestMaxGapMs, 0);
+  if (
+    config.manager.chunkManifestMaxTokens > 0 &&
+    config.manager.chunkManifestTargetTokens > config.manager.chunkManifestMaxTokens
+  ) {
+    throw new Error(
+      `Invalid manager chunk manifest token bounds: target=${config.manager.chunkManifestTargetTokens}, max=${config.manager.chunkManifestMaxTokens}`
+    );
+  }
+  validateIntegerAtLeast("manager.chunkNeighborWindow", config.manager.chunkNeighborWindow, 0);
+  validateRange("manager.chunkNeighborScoreGate", config.manager.chunkNeighborScoreGate, 0, 1);
+  validateIntegerAtLeast("manager.chunkMaxExpandedBlocks", config.manager.chunkMaxExpandedBlocks, 0);
+  if (config.manager.chunkAffectsRetrieval) {
+    throw new Error("Invalid manager.chunkAffectsRetrieval: current mode only supports false");
+  }
   validateRange("manager.hybridPrescreenRatio", config.manager.hybridPrescreenRatio, 0, 1);
   validateIntegerAtLeast("manager.hybridPrescreenMin", config.manager.hybridPrescreenMin, 1);
   validateIntegerAtLeast("manager.hybridPrescreenMax", config.manager.hybridPrescreenMax, 1);

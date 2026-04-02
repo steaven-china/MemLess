@@ -211,6 +211,18 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "cli.option.topic_shift_retrieval_overlap_hard_max": "topic-shift hard max for retrieval overlap (0-1)",
   "cli.option.topic_shift_soft_cooldown_seconds": "topic-shift soft trigger cooldown seconds",
   "cli.option.topic_shift_hard_cooldown_seconds": "topic-shift hard trigger cooldown seconds",
+  "cli.option.chunk_manifest_enabled": "true | false (enable chunk-manifest indexing)",
+  "cli.option.chunk_affects_retrieval":
+    "true | false (must be false in current compatible mode)",
+  "cli.option.chunk_manifest_target_tokens": "chunk-manifest target tokens per chunk",
+  "cli.option.chunk_manifest_max_tokens": "chunk-manifest max tokens per chunk",
+  "cli.option.chunk_manifest_max_blocks": "chunk-manifest max blocks per chunk",
+  "cli.option.chunk_manifest_max_gap_ms": "chunk-manifest max time gap in milliseconds",
+  "cli.option.chunk_neighbor_expand_enabled":
+    "true | false (append in-chunk neighbors during context assembly)",
+  "cli.option.chunk_neighbor_window": "chunk neighbor window by block distance",
+  "cli.option.chunk_neighbor_score_gate": "minimum seed score to trigger chunk neighbor expansion",
+  "cli.option.chunk_max_expanded_blocks": "max number of appended chunk-neighbor blocks",
   "cli.option.web_debug_api": "true | false",
   "cli.option.web_file_api": "true | false",
   "cli.option.web_raw_context": "true | false",

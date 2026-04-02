@@ -242,6 +242,16 @@ function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignNumber(output, "relationCandidatePromoteScore", table.relationCandidatePromoteScore, filePath, `${fieldPath}.relationCandidatePromoteScore`);
   assignNumber(output, "relationCandidateDecay", table.relationCandidateDecay, filePath, `${fieldPath}.relationCandidateDecay`);
   assignBoolean(output, "relationConflictDetectionEnabled", table.relationConflictDetectionEnabled, filePath, `${fieldPath}.relationConflictDetectionEnabled`);
+  assignBoolean(output, "chunkManifestEnabled", table.chunkManifestEnabled, filePath, `${fieldPath}.chunkManifestEnabled`);
+  assignBoolean(output, "chunkAffectsRetrieval", table.chunkAffectsRetrieval, filePath, `${fieldPath}.chunkAffectsRetrieval`);
+  assignNumber(output, "chunkManifestTargetTokens", table.chunkManifestTargetTokens, filePath, `${fieldPath}.chunkManifestTargetTokens`);
+  assignNumber(output, "chunkManifestMaxTokens", table.chunkManifestMaxTokens, filePath, `${fieldPath}.chunkManifestMaxTokens`);
+  assignNumber(output, "chunkManifestMaxBlocks", table.chunkManifestMaxBlocks, filePath, `${fieldPath}.chunkManifestMaxBlocks`);
+  assignNumber(output, "chunkManifestMaxGapMs", table.chunkManifestMaxGapMs, filePath, `${fieldPath}.chunkManifestMaxGapMs`);
+  assignBoolean(output, "chunkNeighborExpandEnabled", table.chunkNeighborExpandEnabled, filePath, `${fieldPath}.chunkNeighborExpandEnabled`);
+  assignNumber(output, "chunkNeighborWindow", table.chunkNeighborWindow, filePath, `${fieldPath}.chunkNeighborWindow`);
+  assignNumber(output, "chunkNeighborScoreGate", table.chunkNeighborScoreGate, filePath, `${fieldPath}.chunkNeighborScoreGate`);
+  assignNumber(output, "chunkMaxExpandedBlocks", table.chunkMaxExpandedBlocks, filePath, `${fieldPath}.chunkMaxExpandedBlocks`);
   assignNumber(output, "hybridPrescreenRatio", table.hybridPrescreenRatio, filePath, `${fieldPath}.hybridPrescreenRatio`);
   assignNumber(output, "hybridPrescreenMin", table.hybridPrescreenMin, filePath, `${fieldPath}.hybridPrescreenMin`);
   assignNumber(output, "hybridPrescreenMax", table.hybridPrescreenMax, filePath, `${fieldPath}.hybridPrescreenMax`);

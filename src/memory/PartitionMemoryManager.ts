@@ -28,6 +28,7 @@ import type { IRelationStore } from "./relation/IRelationStore.js";
 import type { IRawEventStore } from "./raw/IRawEventStore.js";
 import type { SealProcessor } from "./processing/SealProcessor.js";
 import type { ContextAssembler } from "./output/ContextAssembler.js";
+import type { ChunkManifestIndex } from "./output/ChunkManifestIndex.js";
 import type { RawBacktracker } from "./output/RawBacktracker.js";
 import type { PredictorEngine } from "./prediction/PredictorEngine.js";
 import type { HybridRetriever } from "./output/HybridRetriever.js";
@@ -54,6 +55,7 @@ export interface PartitionMemoryManagerDeps {
   relationExtractor: IRelationExtractor;
   sealProcessor: SealProcessor;
   contextAssembler: ContextAssembler;
+  chunkManifestIndex: ChunkManifestIndex;
   backtracker: RawBacktracker;
   predictor: PredictorEngine;
   keywordIndex?: InvertedIndex;
@@ -261,6 +263,7 @@ export class PartitionMemoryManager implements IMemoryManager {
     await this.deps.blockStore.upsert(sealed);
     this.keywordIndex.add(sealed.id, sealed.keywords);
     await this.deps.vectorStore.add(sealed);
+    this.deps.chunkManifestIndex.addBlock(sealed);
 
     if (this.lastSealedBlockId && this.lastSealedBlockId !== sealed.id) {
       this.relationGraph.addRelation(this.lastSealedBlockId, sealed.id, RelationType.FOLLOWS);
@@ -417,7 +420,7 @@ export class PartitionMemoryManager implements IMemoryManager {
         conflict: block.conflict
       });
     }
-    return refs;
+    return this.appendChunkNeighbors(refs, scores, byId);
   }
 
   async tickProactiveWakeup(): Promise<void> {
@@ -521,6 +524,72 @@ export class PartitionMemoryManager implements IMemoryManager {
 
     if (events.length <= window) return events;
     return events.slice(-window);
+  }
+
+  private async appendChunkNeighbors(
+    refs: BlockRef[],
+    scores: Map<string, number>,
+    blockById: Map<string, MemoryBlock>
+  ): Promise<BlockRef[]> {
+    if (!this.deps.config.chunkManifestEnabled) return refs;
+    if (!this.deps.config.chunkNeighborExpandEnabled) return refs;
+    if (this.deps.config.chunkAffectsRetrieval) return refs;
+    if (refs.length === 0) return refs;
+
+    const maxExpanded = Math.max(0, this.deps.config.chunkMaxExpandedBlocks);
+    const window = Math.max(0, this.deps.config.chunkNeighborWindow);
+    if (maxExpanded === 0 || window === 0) return refs;
+
+    const scoreGate = this.deps.config.chunkNeighborScoreGate;
+    const output = [...refs];
+    const seen = new Set(output.map((ref) => ref.id));
+    const pending: Array<{ blockId: string; seedScore: number }> = [];
+
+    for (const ref of refs) {
+      if (pending.length >= maxExpanded) break;
+      if (ref.score < scoreGate) continue;
+      const neighbors = this.deps.chunkManifestIndex.getNeighborBlockIds(ref.id, window);
+      for (const neighborId of neighbors) {
+        if (pending.length >= maxExpanded) break;
+        if (seen.has(neighborId)) continue;
+        seen.add(neighborId);
+        pending.push({ blockId: neighborId, seedScore: ref.score });
+      }
+    }
+
+    if (pending.length === 0) return refs;
+
+    const missing = pending
+      .map((entry) => entry.blockId)
+      .filter((blockId) => !blockById.has(blockId));
+    if (missing.length > 0) {
+      const loaded = await this.deps.blockStore.getMany(missing);
+      for (const block of loaded) {
+        blockById.set(block.id, block);
+      }
+    }
+
+    for (const entry of pending) {
+      const block = blockById.get(entry.blockId);
+      if (!block) continue;
+      const score = scores.get(block.id) ?? Math.max(0, entry.seedScore - 0.0001);
+      output.push({
+        id: block.id,
+        score,
+        source: "fusion",
+        summary: block.summary,
+        startTime: block.startTime,
+        endTime: block.endTime,
+        keywords: block.keywords,
+        tags: block.tags,
+        rawEvents: block.rawEvents,
+        retentionMode: block.retentionMode,
+        matchScore: block.matchScore,
+        conflict: block.conflict
+      });
+    }
+
+    return output;
   }
 
   private extractKeywords(text: string): string[] {
@@ -1181,6 +1250,7 @@ export class PartitionMemoryManager implements IMemoryManager {
   private async hydrateFromPersistence(): Promise<void> {
     const blocks = await this.deps.blockStore.list();
     const sortedBlocks = [...blocks].sort((a, b) => a.endTime - b.endTime);
+    this.deps.chunkManifestIndex.rebuild(sortedBlocks);
     if (sortedBlocks.length > 0) {
       this.firstMessageUtc = toUtcSeconds(sortedBlocks[0]?.startTime ?? this.nowMs());
       this.lastMessageUtc = toUtcSeconds(sortedBlocks[sortedBlocks.length - 1]?.endTime ?? this.nowMs());

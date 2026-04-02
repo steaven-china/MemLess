@@ -118,6 +118,57 @@ describe("PartitionMemoryManager", () => {
     expect(context.proactiveSignal?.timerIntervalSeconds).toBe(15);
   });
 
+  test("appends in-chunk neighbor blocks without changing top retrieval order", async () => {
+    const runtime = createRuntime({
+      manager: {
+        semanticTopK: 3,
+        finalTopK: 1,
+        chunkManifestEnabled: true,
+        chunkAffectsRetrieval: false,
+        chunkManifestTargetTokens: 500,
+        chunkManifestMaxTokens: 1000,
+        chunkManifestMaxBlocks: 8,
+        chunkManifestMaxGapMs: 60_000,
+        chunkNeighborExpandEnabled: true,
+        chunkNeighborWindow: 1,
+        chunkNeighborScoreGate: 0,
+        chunkMaxExpandedBlocks: 2
+      },
+      component: {
+        chunkStrategy: "fixed"
+      }
+    });
+
+    const now = Date.now();
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "项目A接口超时，网关重试策略和降级方案需要补充。",
+      timestamp: now
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "支付 webhook 幂等锁修复完成，重复回调不会再二次入账。",
+      timestamp: now + 10
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "assistant",
+      text: "部署脚本与回滚步骤已确认，发布窗口安排在今晚。",
+      timestamp: now + 20
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+
+    const context = await runtime.memoryManager.getContext("支付 webhook 幂等");
+    expect(context.blocks.length).toBeGreaterThan(1);
+    expect(context.blocks[0]?.summary).toContain("支付 webhook");
+  });
+
   test("collects structured proactive diagnostics", async () => {
     const runtime = createRuntime({
       manager: {

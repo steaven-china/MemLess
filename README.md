@@ -484,6 +484,64 @@ npm i onnxruntime-node@1.14.0 --save-exact
 
 ---
 
+## Chunk Manifest (Block-First + Context Expansion)
+
+Chunk manifest is designed for compatibility mode:
+- retrieval ranking still remains block-first
+- chunk is used only to append nearby context blocks during assembly
+- `chunkAffectsRetrieval` must stay `false` in current implementation
+
+Important behavior:
+- target/max settings are treated as **boundary hints**, not hard cuts
+- if adjacent blocks are semantically continuous, a chunk can overflow these hints
+- set `chunkManifestMaxTokens = 0` or `chunkManifestMaxBlocks = 0` to disable that bound check
+
+### `config.toml` example
+
+```toml
+[manager]
+chunkManifestEnabled = true
+chunkAffectsRetrieval = false
+chunkManifestTargetTokens = 1000
+chunkManifestMaxTokens = 1400
+chunkManifestMaxBlocks = 8
+chunkManifestMaxGapMs = 900000
+chunkNeighborExpandEnabled = true
+chunkNeighborWindow = 1
+chunkNeighborScoreGate = 0.75
+chunkMaxExpandedBlocks = 4
+```
+
+### PowerShell env example
+
+```powershell
+$env:MLEX_CHUNK_MANIFEST_ENABLED = "true"
+$env:MLEX_CHUNK_AFFECTS_RETRIEVAL = "false"
+$env:MLEX_CHUNK_MANIFEST_TARGET_TOKENS = "1000"
+$env:MLEX_CHUNK_MANIFEST_MAX_TOKENS = "1400"
+$env:MLEX_CHUNK_MANIFEST_MAX_BLOCKS = "8"
+$env:MLEX_CHUNK_MANIFEST_MAX_GAP_MS = "900000"
+$env:MLEX_CHUNK_NEIGHBOR_EXPAND_ENABLED = "true"
+$env:MLEX_CHUNK_NEIGHBOR_WINDOW = "1"
+$env:MLEX_CHUNK_NEIGHBOR_SCORE_GATE = "0.75"
+$env:MLEX_CHUNK_MAX_EXPANDED_BLOCKS = "4"
+```
+
+### CLI overrides
+
+- `--chunk-manifest-enabled <true|false>`
+- `--chunk-affects-retrieval <true|false>`
+- `--chunk-manifest-target-tokens <number>`
+- `--chunk-manifest-max-tokens <number>`
+- `--chunk-manifest-max-blocks <number>`
+- `--chunk-manifest-max-gap-ms <number>`
+- `--chunk-neighbor-expand-enabled <true|false>`
+- `--chunk-neighbor-window <number>`
+- `--chunk-neighbor-score-gate <number>`
+- `--chunk-max-expanded-blocks <number>`
+
+---
+
 ## Tool-Call Persistence (Important)
 
 The following tool results can be written into memory:

@@ -28,6 +28,7 @@ import {
 } from "./memory/management/RetentionActions.js";
 import { RetentionPolicyEngine } from "./memory/management/RetentionPolicyEngine.js";
 import { ContextAssembler } from "./memory/output/ContextAssembler.js";
+import { ChunkManifestIndex } from "./memory/output/ChunkManifestIndex.js";
 import { HybridRetriever } from "./memory/output/HybridRetriever.js";
 import { RawBacktracker } from "./memory/output/RawBacktracker.js";
 import { GraphEmbedder } from "./memory/prediction/GraphEmbedder.js";
@@ -366,6 +367,15 @@ function registerCoreDependencies(input: {
     });
   });
   container.register("contextAssembler", () => new ContextAssembler());
+  container.register("chunkManifestIndex", () => {
+    return new ChunkManifestIndex({
+      enabled: config.manager.chunkManifestEnabled,
+      targetTokens: config.manager.chunkManifestTargetTokens,
+      maxTokens: config.manager.chunkManifestMaxTokens,
+      maxBlocks: config.manager.chunkManifestMaxBlocks,
+      maxGapMs: config.manager.chunkManifestMaxGapMs
+    });
+  });
   container.register("rawBacktracker", () => new RawBacktracker(container.resolve("rawStore")));
   container.register("graphEmbedder", () => buildGraphEmbedder(config));
   container.register("predictor", () => {
@@ -429,6 +439,7 @@ function registerCoreDependencies(input: {
       relationExtractor: container.resolve("relationExtractor"),
       sealProcessor: container.resolve("sealProcessor"),
       contextAssembler: container.resolve("contextAssembler"),
+      chunkManifestIndex: container.resolve("chunkManifestIndex"),
       backtracker: container.resolve("rawBacktracker"),
       predictor: container.resolve("predictor"),
       nowMs,

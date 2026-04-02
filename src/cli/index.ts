@@ -66,6 +66,16 @@ const optionDescriptions = {
   topicShiftRetrievalOverlapHardMax: i18n.t("cli.option.topic_shift_retrieval_overlap_hard_max"),
   topicShiftSoftCooldownSeconds: i18n.t("cli.option.topic_shift_soft_cooldown_seconds"),
   topicShiftHardCooldownSeconds: i18n.t("cli.option.topic_shift_hard_cooldown_seconds"),
+  chunkManifestEnabled: i18n.t("cli.option.chunk_manifest_enabled"),
+  chunkAffectsRetrieval: i18n.t("cli.option.chunk_affects_retrieval"),
+  chunkManifestTargetTokens: i18n.t("cli.option.chunk_manifest_target_tokens"),
+  chunkManifestMaxTokens: i18n.t("cli.option.chunk_manifest_max_tokens"),
+  chunkManifestMaxBlocks: i18n.t("cli.option.chunk_manifest_max_blocks"),
+  chunkManifestMaxGapMs: i18n.t("cli.option.chunk_manifest_max_gap_ms"),
+  chunkNeighborExpandEnabled: i18n.t("cli.option.chunk_neighbor_expand_enabled"),
+  chunkNeighborWindow: i18n.t("cli.option.chunk_neighbor_window"),
+  chunkNeighborScoreGate: i18n.t("cli.option.chunk_neighbor_score_gate"),
+  chunkMaxExpandedBlocks: i18n.t("cli.option.chunk_max_expanded_blocks"),
   webDebugApi: i18n.t("cli.option.web_debug_api"),
   webFileApi: i18n.t("cli.option.web_file_api"),
   webRawContext: i18n.t("cli.option.web_raw_context"),
@@ -179,6 +189,16 @@ program
     "--topic-shift-hard-cooldown-seconds <number>",
     optionDescriptions.topicShiftHardCooldownSeconds
   )
+  .option("--chunk-manifest-enabled <enabled>", optionDescriptions.chunkManifestEnabled)
+  .option("--chunk-affects-retrieval <enabled>", optionDescriptions.chunkAffectsRetrieval)
+  .option("--chunk-manifest-target-tokens <number>", optionDescriptions.chunkManifestTargetTokens)
+  .option("--chunk-manifest-max-tokens <number>", optionDescriptions.chunkManifestMaxTokens)
+  .option("--chunk-manifest-max-blocks <number>", optionDescriptions.chunkManifestMaxBlocks)
+  .option("--chunk-manifest-max-gap-ms <number>", optionDescriptions.chunkManifestMaxGapMs)
+  .option("--chunk-neighbor-expand-enabled <enabled>", optionDescriptions.chunkNeighborExpandEnabled)
+  .option("--chunk-neighbor-window <number>", optionDescriptions.chunkNeighborWindow)
+  .option("--chunk-neighbor-score-gate <number>", optionDescriptions.chunkNeighborScoreGate)
+  .option("--chunk-max-expanded-blocks <number>", optionDescriptions.chunkMaxExpandedBlocks)
   .option("--web-debug-api <enabled>", optionDescriptions.webDebugApi)
   .option("--web-file-api <enabled>", optionDescriptions.webFileApi)
   .option("--web-raw-context <enabled>", optionDescriptions.webRawContext)
@@ -456,6 +476,19 @@ function applyAgentRuntimeOptions(command: Command): void {
       "--topic-shift-hard-cooldown-seconds <number>",
       optionDescriptions.topicShiftHardCooldownSeconds
     )
+    .option("--chunk-manifest-enabled <enabled>", optionDescriptions.chunkManifestEnabled)
+    .option("--chunk-affects-retrieval <enabled>", optionDescriptions.chunkAffectsRetrieval)
+    .option("--chunk-manifest-target-tokens <number>", optionDescriptions.chunkManifestTargetTokens)
+    .option("--chunk-manifest-max-tokens <number>", optionDescriptions.chunkManifestMaxTokens)
+    .option("--chunk-manifest-max-blocks <number>", optionDescriptions.chunkManifestMaxBlocks)
+    .option("--chunk-manifest-max-gap-ms <number>", optionDescriptions.chunkManifestMaxGapMs)
+    .option(
+      "--chunk-neighbor-expand-enabled <enabled>",
+      optionDescriptions.chunkNeighborExpandEnabled
+    )
+    .option("--chunk-neighbor-window <number>", optionDescriptions.chunkNeighborWindow)
+    .option("--chunk-neighbor-score-gate <number>", optionDescriptions.chunkNeighborScoreGate)
+    .option("--chunk-max-expanded-blocks <number>", optionDescriptions.chunkMaxExpandedBlocks)
     .option("--hybrid-prescreen-ratio <number>", optionDescriptions.hybridPrescreenRatio)
     .option("--hybrid-prescreen-min <number>", optionDescriptions.hybridPrescreenMin)
     .option("--hybrid-prescreen-max <number>", optionDescriptions.hybridPrescreenMax)
@@ -589,6 +622,22 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       ),
       topicShiftHardCooldownSeconds: parseOptionalNumber(
         asOptionalString(options.topicShiftHardCooldownSeconds)
+      ),
+      chunkManifestEnabled: parseOptionalBoolean(asOptionalString(options.chunkManifestEnabled)),
+      chunkAffectsRetrieval: parseOptionalBoolean(asOptionalString(options.chunkAffectsRetrieval)),
+      chunkManifestTargetTokens: parseOptionalNumber(
+        asOptionalString(options.chunkManifestTargetTokens)
+      ),
+      chunkManifestMaxTokens: parseOptionalNumber(asOptionalString(options.chunkManifestMaxTokens)),
+      chunkManifestMaxBlocks: parseOptionalNumber(asOptionalString(options.chunkManifestMaxBlocks)),
+      chunkManifestMaxGapMs: parseOptionalNumber(asOptionalString(options.chunkManifestMaxGapMs)),
+      chunkNeighborExpandEnabled: parseOptionalBoolean(
+        asOptionalString(options.chunkNeighborExpandEnabled)
+      ),
+      chunkNeighborWindow: parseOptionalNumber(asOptionalString(options.chunkNeighborWindow)),
+      chunkNeighborScoreGate: parseOptionalFloat(asOptionalString(options.chunkNeighborScoreGate)),
+      chunkMaxExpandedBlocks: parseOptionalNumber(
+        asOptionalString(options.chunkMaxExpandedBlocks)
       ),
       hybridPrescreenRatio: parseOptionalFloat(asOptionalString(options.hybridPrescreenRatio)),
       hybridPrescreenMin: parseOptionalNumber(asOptionalString(options.hybridPrescreenMin)),

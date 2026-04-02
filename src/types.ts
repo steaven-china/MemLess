@@ -188,6 +188,16 @@ export interface ManagerConfig {
   relationCandidatePromoteScore: number;
   relationCandidateDecay: number;
   relationConflictDetectionEnabled: boolean;
+  chunkManifestEnabled: boolean;
+  chunkAffectsRetrieval: boolean;
+  chunkManifestTargetTokens: number;
+  chunkManifestMaxTokens: number;
+  chunkManifestMaxBlocks: number;
+  chunkManifestMaxGapMs: number;
+  chunkNeighborExpandEnabled: boolean;
+  chunkNeighborWindow: number;
+  chunkNeighborScoreGate: number;
+  chunkMaxExpandedBlocks: number;
   // Hybrid retrieval tuning
   hybridPrescreenRatio: number;
   hybridPrescreenMin: number;

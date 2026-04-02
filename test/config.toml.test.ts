@@ -308,6 +308,52 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     expect(config.manager.topicShiftHardCooldownSeconds).toBe(420);
   });
 
+  test("loads chunk-manifest config from toml file", async () => {
+    const filePath = await makeTempPath();
+    await writeFile(
+      filePath,
+      [
+        "[manager]",
+        "chunkManifestEnabled = true",
+        "chunkAffectsRetrieval = false",
+        "chunkManifestTargetTokens = 1200",
+        "chunkManifestMaxTokens = 1600",
+        "chunkManifestMaxBlocks = 10",
+        "chunkManifestMaxGapMs = 600000",
+        "chunkNeighborExpandEnabled = true",
+        "chunkNeighborWindow = 2",
+        "chunkNeighborScoreGate = 0.7",
+        "chunkMaxExpandedBlocks = 6"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const config = loadConfig({}, { userTomlPath: filePath });
+    expect(config.manager.chunkManifestEnabled).toBe(true);
+    expect(config.manager.chunkAffectsRetrieval).toBe(false);
+    expect(config.manager.chunkManifestTargetTokens).toBe(1200);
+    expect(config.manager.chunkManifestMaxTokens).toBe(1600);
+    expect(config.manager.chunkManifestMaxBlocks).toBe(10);
+    expect(config.manager.chunkManifestMaxGapMs).toBe(600000);
+    expect(config.manager.chunkNeighborExpandEnabled).toBe(true);
+    expect(config.manager.chunkNeighborWindow).toBe(2);
+    expect(config.manager.chunkNeighborScoreGate).toBe(0.7);
+    expect(config.manager.chunkMaxExpandedBlocks).toBe(6);
+  });
+
+  test("rejects chunkAffectsRetrieval=true in compatible mode", async () => {
+    const filePath = await makeTempPath();
+    await writeFile(
+      filePath,
+      ["[manager]", "chunkManifestEnabled = true", "chunkAffectsRetrieval = true"].join("\n"),
+      "utf8"
+    );
+
+    expect(() => loadConfig({}, { userTomlPath: filePath })).toThrowError(
+      /chunkAffectsRetrieval/
+    );
+  });
+
   test("loads hybrid and local embed tuning config from toml file", async () => {
     const filePath = await makeTempPath();
     await writeFile(
