@@ -200,6 +200,17 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "cli.option.proactive_require_evidence": "true | false",
   "cli.option.proactive_timer": "true | false",
   "cli.option.proactive_timer_interval_seconds": "proactive timer interval seconds",
+  "cli.option.topic_shift_trigger": "true | false (enable topic-shift trigger)",
+  "cli.option.topic_shift_min_keywords": "minimum keyword count for topic-shift detection",
+  "cli.option.topic_shift_min_tokens": "minimum token count for topic-shift detection",
+  "cli.option.topic_shift_query_similarity_soft_max": "topic-shift soft max for query similarity (0-1)",
+  "cli.option.topic_shift_query_similarity_hard_max": "topic-shift hard max for query similarity (0-1)",
+  "cli.option.topic_shift_keyword_overlap_soft_max": "topic-shift soft max for keyword overlap (0-1)",
+  "cli.option.topic_shift_keyword_overlap_hard_max": "topic-shift hard max for keyword overlap (0-1)",
+  "cli.option.topic_shift_retrieval_overlap_soft_max": "topic-shift soft max for retrieval overlap (0-1)",
+  "cli.option.topic_shift_retrieval_overlap_hard_max": "topic-shift hard max for retrieval overlap (0-1)",
+  "cli.option.topic_shift_soft_cooldown_seconds": "topic-shift soft trigger cooldown seconds",
+  "cli.option.topic_shift_hard_cooldown_seconds": "topic-shift hard trigger cooldown seconds",
   "cli.option.web_debug_api": "true | false",
   "cli.option.web_file_api": "true | false",
   "cli.option.web_raw_context": "true | false",
@@ -211,11 +222,19 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "cli.option.hybrid_prescreen_min": "hybrid hash prescreen minimum candidates",
   "cli.option.hybrid_prescreen_max": "hybrid hash prescreen maximum candidates",
   "cli.option.hybrid_rerank_multiplier": "hybrid local rerank multiplier over topK",
+  "cli.option.hybrid_rerank_hard_cap": "hybrid local rerank hard cap candidates",
+  "cli.option.hybrid_hash_early_stop_min_gap":
+    "hybrid hash early-stop min score gap at topK boundary (0-1)",
+  "cli.option.hybrid_local_rerank_timeout_ms": "hybrid local rerank timeout milliseconds",
+  "cli.option.hybrid_rerank_text_max_chars":
+    "hybrid rerank candidate text clip max characters",
   "cli.option.hybrid_local_cache_max": "hybrid local vector cache max entries",
   "cli.option.hybrid_local_cache_ttl_ms": "hybrid local vector cache ttl in milliseconds",
   "cli.option.local_embed_batch_window_ms": "local embedder batch window milliseconds",
   "cli.option.local_embed_max_batch_size": "local embedder maximum batch size",
   "cli.option.local_embed_queue_max_pending": "local embedder queue max pending requests",
+  "cli.option.local_embed_execution_provider":
+    "local embedder execution provider (auto | cpu | cuda | dml | ...)",
   "cli.option.stream": "enable streaming output",
   "cli.option.max_tokens": "max tokens per memory block",
   "cli.option.show_context": "print context debug info after each answer",
@@ -424,6 +443,8 @@ export const EN_US_MESSAGES: MessageDictionary = {
   "tui.placeholder.interrupted_suffix": "[interrupted]",
   "proactive.evidence_suffix": " (added {count} external evidence item(s))",
   "proactive.intent.default_label": "current task",
+  "proactive.message.topic_shift":
+    "It looks like the topic changed. Do you want to confirm the new goal, constraints, and expected output before I continue?",
   "proactive.message.suggest": "I suggest prioritizing \"{label}\". Do you want me to give you the smallest next-step checklist now?",
   "proactive.message.followup": "I can continue on \"{label}\" and provide the next step now if you want."
 };

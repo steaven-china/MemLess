@@ -16,6 +16,14 @@ interface EmbeddingPipeline {
   ): Promise<{ dims: number[]; data: ArrayLike<number> }>;
 }
 
+interface FeatureExtractionPipelineFactory {
+  (
+    task: "feature-extraction",
+    model: string,
+    options: { quantized: boolean }
+  ): Promise<unknown>;
+}
+
 export interface LocalEmbedderConfig {
   /** HuggingFace model id — must support feature-extraction.
    *  Default: "Xenova/multilingual-e5-small" (384-dim, Chinese+English). */
@@ -35,6 +43,8 @@ export interface LocalEmbedderConfig {
   maxBatchSize?: number;
   /** max pending embed requests before rejecting */
   queueMaxPending?: number;
+  /** ONNX execution provider. Use "auto" to keep default provider chain. */
+  executionProvider?: string;
 }
 
 /**
@@ -52,15 +62,18 @@ export interface LocalEmbedderConfig {
  * pass, which is 3-8× faster than N sequential `embed()` calls.
  */
 export class LocalEmbedder implements IEmbedder {
-  // Static cache keyed by "modelName:quantized" so all instances share one session.
+  // Static cache keyed by "modelName:quantized:provider" so all instances share one session.
   private static readonly pipelineCache = new Map<
     string,
     Promise<EmbeddingPipeline>
   >();
+  private static executionProviderLock: Promise<void> = Promise.resolve();
+  private static readonly runtimeHintWarnedProviders = new Set<string>();
 
   private readonly modelName: string;
   private readonly quantized: boolean;
   private readonly mirror: string | undefined;
+  private readonly executionProvider: string | undefined;
   private readonly cacheKey: string;
   private readonly batchWindowMs: number;
   private readonly maxBatchSize: number;
@@ -70,7 +83,8 @@ export class LocalEmbedder implements IEmbedder {
     this.modelName = config.model ?? "Xenova/multilingual-e5-small";
     this.quantized = config.quantized ?? true;
     this.mirror = config.mirror;
-    this.cacheKey = `${this.modelName}:${this.quantized}`;
+    this.executionProvider = normalizeExecutionProvider(config.executionProvider);
+    this.cacheKey = `${this.modelName}:${this.quantized}:${this.executionProvider ?? "auto"}`;
     this.batchWindowMs = Math.max(1, config.batchWindowMs ?? 5);
     this.maxBatchSize = Math.max(1, config.maxBatchSize ?? 32);
     this.queueMaxPending = Math.max(this.maxBatchSize, config.queueMaxPending ?? 1024);
@@ -196,15 +210,104 @@ export class LocalEmbedder implements IEmbedder {
 
   private async loadPipeline(): Promise<EmbeddingPipeline> {
     const { pipeline, env } = await import("@xenova/transformers");
+    const pipelineFactory = pipeline as FeatureExtractionPipelineFactory;
 
     if (this.mirror) {
       (env as { remoteHost?: string }).remoteHost = this.mirror;
     }
 
-    const pipe = await pipeline("feature-extraction", this.modelName, {
+    if (!this.executionProvider) {
+      return this.createPipeline(pipelineFactory);
+    }
+
+    await this.warnIfCpuOrtPackageLikelyLimitsAcceleration();
+
+    return LocalEmbedder.withExecutionProviderLock(async () => {
+      let onnxBackend: { executionProviders: string[] };
+      try {
+        onnxBackend = await import("@xenova/transformers/src/backends/onnx.js");
+      } catch (error) {
+        console.warn(
+          `[mlex] LocalEmbedder cannot load ONNX backend module, fallback to default provider chain: ${toErrorMessage(error)}`
+        );
+        return this.createPipeline(pipelineFactory);
+      }
+      const executionProviders = onnxBackend.executionProviders;
+      const previousProviders = [...executionProviders];
+
+      try {
+        try {
+          executionProviders.splice(0, executionProviders.length, this.executionProvider!);
+          return await this.createPipeline(pipelineFactory);
+        } catch (error) {
+          if (this.executionProvider === "cpu") {
+            throw error;
+          }
+
+          const cpuProviders = buildExecutionProviderOrder("cpu", previousProviders);
+          executionProviders.splice(0, executionProviders.length, ...cpuProviders);
+          console.warn(
+            `[mlex] LocalEmbedder provider "${this.executionProvider}" is unavailable, fallback to "cpu": ${toErrorMessage(error)}`
+          );
+          return this.createPipeline(pipelineFactory);
+        }
+      } finally {
+        executionProviders.splice(0, executionProviders.length, ...previousProviders);
+      }
+    });
+  }
+
+  private async createPipeline(
+    pipelineFactory: FeatureExtractionPipelineFactory
+  ): Promise<EmbeddingPipeline> {
+    const pipe = await pipelineFactory("feature-extraction", this.modelName, {
       quantized: this.quantized
     });
-    return pipe as unknown as EmbeddingPipeline;
+    return pipe as EmbeddingPipeline;
+  }
+
+  private static async withExecutionProviderLock<T>(work: () => Promise<T>): Promise<T> {
+    const previous = LocalEmbedder.executionProviderLock;
+    let releaseLock: (() => void) | undefined;
+    LocalEmbedder.executionProviderLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    await previous;
+    try {
+      return await work();
+    } finally {
+      releaseLock?.();
+    }
+  }
+
+  private async warnIfCpuOrtPackageLikelyLimitsAcceleration(): Promise<void> {
+    if (!this.executionProvider || this.executionProvider === "cpu") {
+      return;
+    }
+    if (LocalEmbedder.runtimeHintWarnedProviders.has(this.executionProvider)) {
+      return;
+    }
+    LocalEmbedder.runtimeHintWarnedProviders.add(this.executionProvider);
+
+    try {
+      const pkgModule = (await import("onnxruntime-node/package.json", {
+        with: { type: "json" }
+      })) as {
+        default?: { name?: string; version?: string };
+      };
+      const packageName = pkgModule.default?.name ?? "onnxruntime-node";
+      const packageVersion = pkgModule.default?.version ?? "1.14.0";
+      if (packageName !== "onnxruntime-node") {
+        return;
+      }
+      console.warn(
+        `[mlex] provider "${this.executionProvider}" requested, but detected ${packageName}@${packageVersion} (typically CPU-only). ` +
+          `For GPU/NPU runtime, run: npm i onnxruntime-node@npm:onnxruntime-node-gpu@${packageVersion} --save-exact`
+      );
+    } catch {
+      // Ignore diagnostics failures and continue normal pipeline loading.
+    }
   }
 
   private scheduleBatchFlush(): void {
@@ -220,4 +323,40 @@ export class LocalEmbedder implements IEmbedder {
     clearTimeout(this.batchTimer);
     this.batchTimer = null;
   }
+}
+
+function normalizeExecutionProvider(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0 || normalized === "auto") return undefined;
+  return normalized;
+}
+
+function buildExecutionProviderOrder(
+  preferredProvider: string,
+  existingProviders: readonly string[]
+): string[] {
+  const output: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (!value) return;
+    const normalized = value.trim().toLowerCase();
+    if (normalized.length === 0) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    output.push(normalized);
+  };
+
+  add(preferredProvider);
+  for (const provider of existingProviders) {
+    add(provider);
+  }
+  add("cpu");
+  add("wasm");
+  return output;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }

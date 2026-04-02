@@ -8,6 +8,9 @@
  *   MLEX_CRUD_BENCH_FIXTURE / MLEX_BENCH_FIXTURE
  *   MLEX_CRUD_BENCH_CATEGORIES / MLEX_BENCH_CATEGORIES
  *   MLEX_CRUD_BENCH_THRESHOLDS / MLEX_BENCH_THRESHOLDS
+ *   MLEX_BENCH_CONCURRENCY
+ *   MLEX_BENCH_MAX_CASES
+ *   MLEX_BENCH_CATEGORY_MAX_CASES
  *
  * Threshold override format:
  *   - JSON: {"noise":0.6,"temporal":0.65}
@@ -26,10 +29,10 @@
  *     npx vitest run --config vitest.bench.config.ts test/eval.crud_rag.bench.ts --reporter=verbose
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import { join, dirname, isAbsolute, basename } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { createRuntime, type Runtime } from "../src/container.js";
 import { createId } from "../src/utils/id.js";
@@ -48,8 +51,9 @@ const THRESHOLD_OVERRIDES = parseThresholdOverrides(
   process.env.MLEX_BENCH_THRESHOLDS
 );
 const DEFAULT_CATEGORY_ORDER = ["noise", "multi-hop", "temporal"];
-
-// ─── Types ───────────────────────────────────────────────────────────────────
+const BENCH_CONCURRENCY = resolveBenchConcurrency(process.env.MLEX_BENCH_CONCURRENCY, 4);
+const BENCH_MAX_CASES = parsePositiveInteger(process.env.MLEX_BENCH_MAX_CASES);
+const BENCH_CATEGORY_MAX_CASES = parsePositiveInteger(process.env.MLEX_BENCH_CATEGORY_MAX_CASES);
 
 interface SemanticCase {
   id: string;
@@ -61,6 +65,12 @@ interface SemanticCase {
   note: string;
 }
 
+interface CaseTiming {
+  ingestSealMs: number;
+  queryMs: number;
+  totalMs: number;
+}
+
 interface CaseResult {
   id: string;
   category: string;
@@ -68,9 +78,17 @@ interface CaseResult {
   groundTruth: string;
   topHits: string[];
   note: string;
+  timing: CaseTiming;
 }
 
-// ─── Load ────────────────────────────────────────────────────────────────────
+interface TimingSummary {
+  avgIngestSealMs: number;
+  p95IngestSealMs: number;
+  avgQueryMs: number;
+  p95QueryMs: number;
+  avgTotalMs: number;
+  p95TotalMs: number;
+}
 
 function loadCases(): SemanticCase[] {
   if (!existsSync(FIXTURE_PATH)) {
@@ -94,67 +112,89 @@ function loadCases(): SemanticCase[] {
   }
 }
 
-// ─── Runner ──────────────────────────────────────────────────────────────────
-
-async function runCase(c: SemanticCase): Promise<CaseResult> {
+async function runCase(input: SemanticCase): Promise<CaseResult> {
   const now = Date.now();
   let runtime: Runtime | undefined;
   try {
-    const semanticTopK = Math.max(15, c.blocks.length + 4);
+    const semanticTopK = Math.max(15, input.blocks.length + 4);
     runtime = createRuntime({
-      manager: { enableRelationExpansion: true, relationDepth: 2,
-                 graphExpansionTopK: 4, finalTopK: 10, semanticTopK }
+      manager: {
+        enableRelationExpansion: true,
+        relationDepth: 2,
+        graphExpansionTopK: 4,
+        finalTopK: 10,
+        semanticTopK
+      }
     });
 
-    const total = c.blocks.length;
-    for (let bi = 0; bi < total; bi++) {
-      const offset = (total - 1 - bi) * 3000;
-      for (const text of c.blocks[bi]!) {
+    const ingestStartMs = performance.now();
+    const total = input.blocks.length;
+    for (let blockIndex = 0; blockIndex < total; blockIndex += 1) {
+      const offset = (total - 1 - blockIndex) * 3000;
+      for (const text of input.blocks[blockIndex] ?? []) {
         await runtime.memoryManager.addEvent({
-          id: createId("event"), role: "user", text,
+          id: createId("event"),
+          role: "user",
+          text,
           timestamp: now - offset
         });
       }
       await runtime.memoryManager.sealCurrentBlock();
     }
 
-    const topN = c.topN ?? 3;
-    const context = await runtime.memoryManager.getContext(c.query);
+    const queryStartMs = performance.now();
+    const topN = input.topN ?? 3;
+    const context = await runtime.memoryManager.getContext(input.query);
+    const queryEndMs = performance.now();
     const topBlocks = context.blocks.slice(0, topN);
 
-    const passed = topBlocks.some(b => {
-      const content = [b.summary ?? "", ...(b.rawEvents ?? []).map(e => e.text)].join(" ");
-      return content.includes(c.groundTruth);
+    const passed = topBlocks.some((block) => {
+      const content = [block.summary ?? "", ...(block.rawEvents ?? []).map((event) => event.text)].join(" ");
+      return content.includes(input.groundTruth);
     });
 
-    const topHits = topBlocks.slice(0, 2).map(b =>
-      [b.summary ?? "", ...(b.rawEvents ?? []).map(e => e.text)]
-        .join(" ").replace(/\s+/g, " ").slice(0, 80)
+    const topHits = topBlocks.slice(0, 2).map((block) =>
+      [block.summary ?? "", ...(block.rawEvents ?? []).map((event) => event.text)]
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .slice(0, 80)
     );
 
-    return { id: c.id, category: c.category, passed, groundTruth: c.groundTruth, topHits, note: c.note };
+    return {
+      id: input.id,
+      category: input.category,
+      passed,
+      groundTruth: input.groundTruth,
+      topHits,
+      note: input.note,
+      timing: {
+        ingestSealMs: queryStartMs - ingestStartMs,
+        queryMs: queryEndMs - queryStartMs,
+        totalMs: queryEndMs - ingestStartMs
+      }
+    };
   } finally {
     await runtime?.close();
   }
 }
 
-// ─── Bench ───────────────────────────────────────────────────────────────────
+async function runCases(cases: SemanticCase[], concurrency: number): Promise<CaseResult[]> {
+  const results: CaseResult[] = [];
+  for (let index = 0; index < cases.length; index += concurrency) {
+    const batch = cases.slice(index, index + concurrency);
+    results.push(...await Promise.all(batch.map((item) => runCase(item))));
+  }
+  return results;
+}
 
 const RAW_CASES = loadCases();
-const CASES = CATEGORY_FILTER.length > 0
+const FILTERED_CASES = CATEGORY_FILTER.length > 0
   ? RAW_CASES.filter((item) => CATEGORY_FILTER.includes(item.category))
   : RAW_CASES;
+const CASES = applyCaseLimit(FILTERED_CASES, BENCH_MAX_CASES);
 const CATEGORIES = deriveCategories(CASES, DEFAULT_CATEGORY_ORDER);
-const CONCURRENCY = 4;
 
 describe(`CRUD-RAG bench — ${CASES.length} cases (${basename(FIXTURE_PATH)})`, () => {
-  const runtimes: Runtime[] = [];
-  afterEach(async () => {
-    for (const rt of runtimes.splice(0)) {
-      await rt.close();
-    }
-  });
-
   if (CASES.length === 0) {
     test("fixture missing or empty", () => {
       console.info(`No usable fixture cases loaded from: ${FIXTURE_PATH}`);
@@ -164,24 +204,29 @@ describe(`CRUD-RAG bench — ${CASES.length} cases (${basename(FIXTURE_PATH)})`,
     return;
   }
 
+  const categoryResults = new Map<string, CaseResult[]>();
+  const categoryCaseCounts = new Map<string, number>();
+
   for (const category of CATEGORIES) {
-    const catCases = CASES.filter((item) => item.category === category);
+    const catCases = applyCaseLimit(
+      CASES.filter((item) => item.category === category),
+      BENCH_CATEGORY_MAX_CASES
+    );
     if (catCases.length === 0) continue;
+    categoryCaseCounts.set(category, catCases.length);
 
     test(
       `category: ${category}  (${catCases.length} cases)`,
       { timeout: catCases.length * 10_000 + 30_000 },
       async () => {
-        const results: CaseResult[] = [];
-        for (let i = 0; i < catCases.length; i += CONCURRENCY) {
-          const batch = catCases.slice(i, i + CONCURRENCY);
-          results.push(...await Promise.all(batch.map((item) => runCase(item))));
-        }
+        const results = await runCases(catCases, BENCH_CONCURRENCY);
+        categoryResults.set(category, results);
 
         const embedder = process.env.MLEX_EMBEDDER ?? "hash";
         const passed = results.filter((result) => result.passed).length;
         const rate = passed / results.length;
         const threshold = resolveThreshold(category, embedder);
+        const timing = summarizeTiming(results);
 
         for (const result of results.filter((item) => !item.passed).slice(0, 5)) {
           console.info(`  FAIL [${result.id}] gt="${result.groundTruth}"`);
@@ -189,9 +234,17 @@ describe(`CRUD-RAG bench — ${CASES.length} cases (${basename(FIXTURE_PATH)})`,
             console.info(`    → "${hit}"`);
           }
         }
+
         console.info(
           `[${category}] ${passed}/${results.length} (${(rate * 100).toFixed(1)}%) threshold=${threshold.toFixed(2)} embedder=${embedder}`
         );
+        if (timing) {
+          console.info(
+            `  latency ingest(avg/p95)=${timing.avgIngestSealMs.toFixed(1)}/${timing.p95IngestSealMs.toFixed(1)}ms` +
+              ` query(avg/p95)=${timing.avgQueryMs.toFixed(1)}/${timing.p95QueryMs.toFixed(1)}ms` +
+              ` total(avg/p95)=${timing.avgTotalMs.toFixed(1)}/${timing.p95TotalMs.toFixed(1)}ms`
+          );
+        }
 
         expect(
           rate,
@@ -203,25 +256,45 @@ describe(`CRUD-RAG bench — ${CASES.length} cases (${basename(FIXTURE_PATH)})`,
 
   test(
     "overall summary",
-    { timeout: CASES.length * 10_000 + 60_000 },
-    async () => {
-      const results: CaseResult[] = [];
-      for (let i = 0; i < CASES.length; i += CONCURRENCY) {
-        const batch = CASES.slice(i, i + CONCURRENCY);
-        results.push(...await Promise.all(batch.map((item) => runCase(item))));
-      }
+    { timeout: 30_000 },
+    () => {
       const embedder = process.env.MLEX_EMBEDDER ?? "hash";
+      const results = CATEGORIES.flatMap((category) => categoryResults.get(category) ?? []);
+      if (results.length === 0) {
+        console.info("[crud-bench] no category results collected; summary skipped");
+        return;
+      }
+
       const total = results.length;
       const totalPassed = results.filter((result) => result.passed).length;
-      console.info(`\n[crud-bench]  embedder=${embedder}  n=${total}`);
+      console.info(
+        `\n[crud-bench]  embedder=${embedder}  n=${total}` +
+          `  concurrency=${BENCH_CONCURRENCY}` +
+          `  maxCases=${BENCH_MAX_CASES ?? "all"}` +
+          `  categoryMax=${BENCH_CATEGORY_MAX_CASES ?? "all"}`
+      );
+
       for (const category of CATEGORIES) {
-        const sub = results.filter((result) => result.category === category);
+        const sub = categoryResults.get(category) ?? [];
+        if (sub.length === 0) continue;
         const passed = sub.filter((result) => result.passed).length;
+        const plannedCases = categoryCaseCounts.get(category) ?? sub.length;
         console.info(
-          `  ${category.padEnd(10)} ${passed}/${sub.length}  (${((passed / sub.length) * 100).toFixed(1)}%)`
+          `  ${category.padEnd(10)} ${passed}/${sub.length}` +
+            ` (planned=${plannedCases}, ${(passed / sub.length * 100).toFixed(1)}%)`
         );
       }
-      console.info(`  overall    ${totalPassed}/${total}  (${((totalPassed / total) * 100).toFixed(1)}%)\n`);
+      console.info(`  overall    ${totalPassed}/${total}  (${((totalPassed / total) * 100).toFixed(1)}%)`);
+
+      const timing = summarizeTiming(results);
+      if (timing) {
+        console.info(
+          `[crud-bench-latency] ingest(avg/p95)=${timing.avgIngestSealMs.toFixed(1)}/${timing.p95IngestSealMs.toFixed(1)}ms` +
+            ` query(avg/p95)=${timing.avgQueryMs.toFixed(1)}/${timing.p95QueryMs.toFixed(1)}ms` +
+            ` total(avg/p95)=${timing.avgTotalMs.toFixed(1)}/${timing.p95TotalMs.toFixed(1)}ms`
+        );
+      }
+      console.info("");
     }
   );
 });
@@ -295,7 +368,7 @@ function resolveThreshold(category: string, embedder: string): number {
 function deriveCategories(cases: SemanticCase[], preferredOrder: string[]): string[] {
   const unique = [...new Set(cases.map((item) => item.category))];
   const preferred = preferredOrder.filter((item) => unique.includes(item));
-  const extra = unique.filter((item) => !preferredOrder.includes(item)).sort((a, b) => a.localeCompare(b));
+  const extra = unique.filter((item) => !preferredOrder.includes(item)).sort((left, right) => left.localeCompare(right));
   return [...preferred, ...extra];
 }
 
@@ -304,9 +377,7 @@ function normalizeCase(value: unknown, index: number): SemanticCase | undefined 
   const query = asOptionalString(value.query);
   const groundTruth = asOptionalString(value.groundTruth);
   const blocks = normalizeBlocks(value.blocks);
-  if (!query || !groundTruth || blocks.length === 0) {
-    return undefined;
-  }
+  if (!query || !groundTruth || blocks.length === 0) return undefined;
   return {
     id: asOptionalString(value.id) ?? `case-${index + 1}`,
     category: asOptionalString(value.category) ?? "uncategorized",
@@ -327,16 +398,63 @@ function normalizeBlocks(value: unknown): string[][] {
       .filter((entry): entry is string => typeof entry === "string")
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
-    if (texts.length > 0) {
-      output.push(texts);
-    }
+    if (texts.length > 0) output.push(texts);
   }
   return output;
 }
 
+function parsePositiveInteger(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+function resolveBenchConcurrency(raw: string | undefined, fallback: number): number {
+  const parsed = parsePositiveInteger(raw);
+  const normalized = parsed ?? fallback;
+  return clampInt(normalized, 1, 32);
+}
+
+function applyCaseLimit<T>(input: T[], limit: number | undefined): T[] {
+  if (!limit || limit >= input.length) return input;
+  return input.slice(0, limit);
+}
+
+function summarizeTiming(results: CaseResult[]): TimingSummary | undefined {
+  if (results.length === 0) return undefined;
+  const ingestValues = results.map((result) => result.timing.ingestSealMs);
+  const queryValues = results.map((result) => result.timing.queryMs);
+  const totalValues = results.map((result) => result.timing.totalMs);
+  return {
+    avgIngestSealMs: average(ingestValues),
+    p95IngestSealMs: percentile(ingestValues, 0.95),
+    avgQueryMs: average(queryValues),
+    p95QueryMs: percentile(queryValues, 0.95),
+    avgTotalMs: average(totalValues),
+    p95TotalMs: percentile(totalValues, 0.95)
+  };
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1));
+  return sorted[index] ?? 0;
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  const normalized = Math.trunc(value);
+  return Math.min(max, Math.max(min, normalized));
+}
+
 function asOptionalInteger(value: unknown): number | undefined {
-  if (typeof value !== "number") return undefined;
-  if (!Number.isFinite(value)) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   const integer = Math.trunc(value);
   return integer > 0 ? integer : undefined;
 }

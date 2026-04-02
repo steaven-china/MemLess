@@ -81,7 +81,7 @@ export interface ProactiveSignal {
   timerIntervalSeconds: number;
 }
 
-export type ProactiveAction = "noop" | "nudge_user" | "ask_followup" | "summarize";
+export type ProactiveAction = "noop" | "nudge_user" | "ask_followup";
 
 export interface ProactivePlan {
   action: ProactiveAction;
@@ -166,6 +166,17 @@ export interface ManagerConfig {
   lowEntropyHardStreakK: number;
   lowEntropySoftCooldownSeconds: number;
   lowEntropyHardCooldownSeconds: number;
+  topicShiftTriggerEnabled: boolean;
+  topicShiftMinKeywords: number;
+  topicShiftMinTokens: number;
+  topicShiftQuerySimilaritySoftMax: number;
+  topicShiftQuerySimilarityHardMax: number;
+  topicShiftKeywordOverlapSoftMax: number;
+  topicShiftKeywordOverlapHardMax: number;
+  topicShiftRetrievalOverlapSoftMax: number;
+  topicShiftRetrievalOverlapHardMax: number;
+  topicShiftSoftCooldownSeconds: number;
+  topicShiftHardCooldownSeconds: number;
   relationTriggerEnabled: boolean;
   relationTriggerWindowSize: number;
   relationTriggerStreakRequired: number;
@@ -182,6 +193,10 @@ export interface ManagerConfig {
   hybridPrescreenMin: number;
   hybridPrescreenMax: number;
   hybridRerankMultiplier: number;
+  hybridRerankHardCap: number;
+  hybridHashEarlyStopMinGap: number;
+  hybridLocalRerankTimeoutMs: number;
+  hybridRerankTextMaxChars: number;
   hybridLocalCacheMaxEntries: number;
   hybridLocalCacheTtlMs: number;
   agentMaxToolRounds: number;

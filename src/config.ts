@@ -56,6 +56,7 @@ export interface ComponentConfig {
   localEmbedBatchWindowMs: number;
   localEmbedMaxBatchSize: number;
   localEmbedQueueMaxPending: number;
+  localEmbedExecutionProvider: string;
   lanceFilePath: string;
   lanceDbPath: string;
   chromaBaseUrl?: string;
@@ -108,6 +109,7 @@ export type DeepPartial<T> = {
 const DEFAULT_LOCAL_EMBED_BATCH_WINDOW_MS = 5;
 const DEFAULT_LOCAL_EMBED_MAX_BATCH_SIZE = 32;
 const DEFAULT_LOCAL_EMBED_QUEUE_MAX_PENDING = 1024;
+const DEFAULT_LOCAL_EMBED_EXECUTION_PROVIDER = "auto";
 
 export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   maxTokensPerBlock: 320,
@@ -170,6 +172,17 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   lowEntropyHardStreakK: 4,
   lowEntropySoftCooldownSeconds: 300,
   lowEntropyHardCooldownSeconds: 900,
+  topicShiftTriggerEnabled: true,
+  topicShiftMinKeywords: 2,
+  topicShiftMinTokens: 3,
+  topicShiftQuerySimilaritySoftMax: 0.35,
+  topicShiftQuerySimilarityHardMax: 0.2,
+  topicShiftKeywordOverlapSoftMax: 0.3,
+  topicShiftKeywordOverlapHardMax: 0.15,
+  topicShiftRetrievalOverlapSoftMax: 0.35,
+  topicShiftRetrievalOverlapHardMax: 0.2,
+  topicShiftSoftCooldownSeconds: 180,
+  topicShiftHardCooldownSeconds: 600,
   relationTriggerEnabled: true,
   relationTriggerWindowSize: 50,
   relationTriggerStreakRequired: 3,
@@ -186,6 +199,10 @@ export const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   hybridPrescreenMin: 20,
   hybridPrescreenMax: 100,
   hybridRerankMultiplier: 3,
+  hybridRerankHardCap: 16,
+  hybridHashEarlyStopMinGap: 0.12,
+  hybridLocalRerankTimeoutMs: 350,
+  hybridRerankTextMaxChars: 512,
   hybridLocalCacheMaxEntries: 2000,
   hybridLocalCacheTtlMs: 300_000,
   agentMaxToolRounds: 12
@@ -402,6 +419,48 @@ export function loadConfig(
       "MLEX_LOW_ENTROPY_HARD_COOLDOWN_SECONDS",
       DEFAULT_MANAGER_CONFIG.lowEntropyHardCooldownSeconds
     ),
+    topicShiftTriggerEnabled:
+      (process.env.MLEX_TOPIC_SHIFT_TRIGGER_ENABLED ?? "true").toLowerCase() === "true",
+    topicShiftMinKeywords: parseEnvNumber(
+      "MLEX_TOPIC_SHIFT_MIN_KEYWORDS",
+      DEFAULT_MANAGER_CONFIG.topicShiftMinKeywords
+    ),
+    topicShiftMinTokens: parseEnvNumber(
+      "MLEX_TOPIC_SHIFT_MIN_TOKENS",
+      DEFAULT_MANAGER_CONFIG.topicShiftMinTokens
+    ),
+    topicShiftQuerySimilaritySoftMax: parseEnvFloat(
+      "MLEX_TOPIC_SHIFT_QUERY_SIMILARITY_SOFT_MAX",
+      DEFAULT_MANAGER_CONFIG.topicShiftQuerySimilaritySoftMax
+    ),
+    topicShiftQuerySimilarityHardMax: parseEnvFloat(
+      "MLEX_TOPIC_SHIFT_QUERY_SIMILARITY_HARD_MAX",
+      DEFAULT_MANAGER_CONFIG.topicShiftQuerySimilarityHardMax
+    ),
+    topicShiftKeywordOverlapSoftMax: parseEnvFloat(
+      "MLEX_TOPIC_SHIFT_KEYWORD_OVERLAP_SOFT_MAX",
+      DEFAULT_MANAGER_CONFIG.topicShiftKeywordOverlapSoftMax
+    ),
+    topicShiftKeywordOverlapHardMax: parseEnvFloat(
+      "MLEX_TOPIC_SHIFT_KEYWORD_OVERLAP_HARD_MAX",
+      DEFAULT_MANAGER_CONFIG.topicShiftKeywordOverlapHardMax
+    ),
+    topicShiftRetrievalOverlapSoftMax: parseEnvFloat(
+      "MLEX_TOPIC_SHIFT_RETRIEVAL_OVERLAP_SOFT_MAX",
+      DEFAULT_MANAGER_CONFIG.topicShiftRetrievalOverlapSoftMax
+    ),
+    topicShiftRetrievalOverlapHardMax: parseEnvFloat(
+      "MLEX_TOPIC_SHIFT_RETRIEVAL_OVERLAP_HARD_MAX",
+      DEFAULT_MANAGER_CONFIG.topicShiftRetrievalOverlapHardMax
+    ),
+    topicShiftSoftCooldownSeconds: parseEnvNumber(
+      "MLEX_TOPIC_SHIFT_SOFT_COOLDOWN_SECONDS",
+      DEFAULT_MANAGER_CONFIG.topicShiftSoftCooldownSeconds
+    ),
+    topicShiftHardCooldownSeconds: parseEnvNumber(
+      "MLEX_TOPIC_SHIFT_HARD_COOLDOWN_SECONDS",
+      DEFAULT_MANAGER_CONFIG.topicShiftHardCooldownSeconds
+    ),
     relationTriggerEnabled:
       (process.env.MLEX_RELATION_TRIGGER_ENABLED ?? "true").toLowerCase() === "true",
     relationTriggerWindowSize: parseEnvNumber(
@@ -458,6 +517,22 @@ export function loadConfig(
       "MLEX_HYBRID_RERANK_MULTIPLIER",
       DEFAULT_MANAGER_CONFIG.hybridRerankMultiplier
     ),
+    hybridRerankHardCap: parseEnvNumber(
+      "MLEX_HYBRID_RERANK_HARD_CAP",
+      DEFAULT_MANAGER_CONFIG.hybridRerankHardCap
+    ),
+    hybridHashEarlyStopMinGap: parseEnvFloat(
+      "MLEX_HYBRID_HASH_EARLY_STOP_MIN_GAP",
+      DEFAULT_MANAGER_CONFIG.hybridHashEarlyStopMinGap
+    ),
+    hybridLocalRerankTimeoutMs: parseEnvNumber(
+      "MLEX_HYBRID_LOCAL_RERANK_TIMEOUT_MS",
+      DEFAULT_MANAGER_CONFIG.hybridLocalRerankTimeoutMs
+    ),
+    hybridRerankTextMaxChars: parseEnvNumber(
+      "MLEX_HYBRID_RERANK_TEXT_MAX_CHARS",
+      DEFAULT_MANAGER_CONFIG.hybridRerankTextMaxChars
+    ),
     hybridLocalCacheMaxEntries: parseEnvNumber(
       "MLEX_HYBRID_LOCAL_CACHE_MAX",
       DEFAULT_MANAGER_CONFIG.hybridLocalCacheMaxEntries
@@ -505,6 +580,8 @@ export function loadConfig(
       "MLEX_LOCAL_EMBED_QUEUE_MAX_PENDING",
       DEFAULT_LOCAL_EMBED_QUEUE_MAX_PENDING
     ),
+    localEmbedExecutionProvider:
+      process.env.MLEX_LOCAL_EMBED_EXECUTION_PROVIDER ?? DEFAULT_LOCAL_EMBED_EXECUTION_PROVIDER,
     chromaBaseUrl: process.env.MLEX_CHROMA_BASE_URL,
     chromaCollectionId: process.env.MLEX_CHROMA_COLLECTION,
     chromaApiKey: process.env.MLEX_CHROMA_API_KEY,
@@ -616,12 +693,99 @@ function validateConfig(config: AppConfig): AppConfig {
     );
   }
   validateAtLeast("manager.hybridRerankMultiplier", config.manager.hybridRerankMultiplier, 1);
+  validateIntegerAtLeast("manager.hybridRerankHardCap", config.manager.hybridRerankHardCap, 1);
+  validateRange(
+    "manager.hybridHashEarlyStopMinGap",
+    config.manager.hybridHashEarlyStopMinGap,
+    0,
+    1
+  );
+  validateIntegerAtLeast(
+    "manager.hybridLocalRerankTimeoutMs",
+    config.manager.hybridLocalRerankTimeoutMs,
+    1
+  );
+  validateIntegerAtLeast(
+    "manager.hybridRerankTextMaxChars",
+    config.manager.hybridRerankTextMaxChars,
+    16
+  );
   validateIntegerAtLeast(
     "manager.hybridLocalCacheMaxEntries",
     config.manager.hybridLocalCacheMaxEntries,
     0
   );
   validateIntegerAtLeast("manager.hybridLocalCacheTtlMs", config.manager.hybridLocalCacheTtlMs, 0);
+  validateIntegerAtLeast("manager.topicShiftMinKeywords", config.manager.topicShiftMinKeywords, 1);
+  validateIntegerAtLeast("manager.topicShiftMinTokens", config.manager.topicShiftMinTokens, 1);
+  validateRange(
+    "manager.topicShiftQuerySimilaritySoftMax",
+    config.manager.topicShiftQuerySimilaritySoftMax,
+    0,
+    1
+  );
+  validateRange(
+    "manager.topicShiftQuerySimilarityHardMax",
+    config.manager.topicShiftQuerySimilarityHardMax,
+    0,
+    1
+  );
+  validateRange(
+    "manager.topicShiftKeywordOverlapSoftMax",
+    config.manager.topicShiftKeywordOverlapSoftMax,
+    0,
+    1
+  );
+  validateRange(
+    "manager.topicShiftKeywordOverlapHardMax",
+    config.manager.topicShiftKeywordOverlapHardMax,
+    0,
+    1
+  );
+  validateRange(
+    "manager.topicShiftRetrievalOverlapSoftMax",
+    config.manager.topicShiftRetrievalOverlapSoftMax,
+    0,
+    1
+  );
+  validateRange(
+    "manager.topicShiftRetrievalOverlapHardMax",
+    config.manager.topicShiftRetrievalOverlapHardMax,
+    0,
+    1
+  );
+  validateIntegerAtLeast(
+    "manager.topicShiftSoftCooldownSeconds",
+    config.manager.topicShiftSoftCooldownSeconds,
+    0
+  );
+  validateIntegerAtLeast(
+    "manager.topicShiftHardCooldownSeconds",
+    config.manager.topicShiftHardCooldownSeconds,
+    0
+  );
+  if (
+    config.manager.topicShiftQuerySimilarityHardMax > config.manager.topicShiftQuerySimilaritySoftMax
+  ) {
+    throw new Error(
+      "Invalid manager topic-shift query similarity thresholds: hard max must be <= soft max."
+    );
+  }
+  if (
+    config.manager.topicShiftKeywordOverlapHardMax > config.manager.topicShiftKeywordOverlapSoftMax
+  ) {
+    throw new Error(
+      "Invalid manager topic-shift keyword overlap thresholds: hard max must be <= soft max."
+    );
+  }
+  if (
+    config.manager.topicShiftRetrievalOverlapHardMax >
+    config.manager.topicShiftRetrievalOverlapSoftMax
+  ) {
+    throw new Error(
+      "Invalid manager topic-shift retrieval overlap thresholds: hard max must be <= soft max."
+    );
+  }
   validateIntegerAtLeast(
     "component.localEmbedBatchWindowMs",
     config.component.localEmbedBatchWindowMs,
@@ -637,6 +801,12 @@ function validateConfig(config: AppConfig): AppConfig {
     config.component.localEmbedQueueMaxPending,
     1
   );
+  if (typeof config.component.localEmbedExecutionProvider !== "string") {
+    throw new Error("Invalid component.localEmbedExecutionProvider: must be string");
+  }
+  if (config.component.localEmbedExecutionProvider.trim().length === 0) {
+    throw new Error("Invalid component.localEmbedExecutionProvider: must be non-empty");
+  }
   return config;
 }
 

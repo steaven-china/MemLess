@@ -55,6 +55,17 @@ const optionDescriptions = {
   proactiveRequireEvidence: i18n.t("cli.option.proactive_require_evidence"),
   proactiveTimer: i18n.t("cli.option.proactive_timer"),
   proactiveTimerIntervalSeconds: i18n.t("cli.option.proactive_timer_interval_seconds"),
+  topicShiftTrigger: i18n.t("cli.option.topic_shift_trigger"),
+  topicShiftMinKeywords: i18n.t("cli.option.topic_shift_min_keywords"),
+  topicShiftMinTokens: i18n.t("cli.option.topic_shift_min_tokens"),
+  topicShiftQuerySimilaritySoftMax: i18n.t("cli.option.topic_shift_query_similarity_soft_max"),
+  topicShiftQuerySimilarityHardMax: i18n.t("cli.option.topic_shift_query_similarity_hard_max"),
+  topicShiftKeywordOverlapSoftMax: i18n.t("cli.option.topic_shift_keyword_overlap_soft_max"),
+  topicShiftKeywordOverlapHardMax: i18n.t("cli.option.topic_shift_keyword_overlap_hard_max"),
+  topicShiftRetrievalOverlapSoftMax: i18n.t("cli.option.topic_shift_retrieval_overlap_soft_max"),
+  topicShiftRetrievalOverlapHardMax: i18n.t("cli.option.topic_shift_retrieval_overlap_hard_max"),
+  topicShiftSoftCooldownSeconds: i18n.t("cli.option.topic_shift_soft_cooldown_seconds"),
+  topicShiftHardCooldownSeconds: i18n.t("cli.option.topic_shift_hard_cooldown_seconds"),
   webDebugApi: i18n.t("cli.option.web_debug_api"),
   webFileApi: i18n.t("cli.option.web_file_api"),
   webRawContext: i18n.t("cli.option.web_raw_context"),
@@ -66,11 +77,16 @@ const optionDescriptions = {
   hybridPrescreenMin: i18n.t("cli.option.hybrid_prescreen_min"),
   hybridPrescreenMax: i18n.t("cli.option.hybrid_prescreen_max"),
   hybridRerankMultiplier: i18n.t("cli.option.hybrid_rerank_multiplier"),
+  hybridRerankHardCap: i18n.t("cli.option.hybrid_rerank_hard_cap"),
+  hybridHashEarlyStopMinGap: i18n.t("cli.option.hybrid_hash_early_stop_min_gap"),
+  hybridLocalRerankTimeoutMs: i18n.t("cli.option.hybrid_local_rerank_timeout_ms"),
+  hybridRerankTextMaxChars: i18n.t("cli.option.hybrid_rerank_text_max_chars"),
   hybridLocalCacheMax: i18n.t("cli.option.hybrid_local_cache_max"),
   hybridLocalCacheTtlMs: i18n.t("cli.option.hybrid_local_cache_ttl_ms"),
   localEmbedBatchWindowMs: i18n.t("cli.option.local_embed_batch_window_ms"),
   localEmbedMaxBatchSize: i18n.t("cli.option.local_embed_max_batch_size"),
   localEmbedQueueMaxPending: i18n.t("cli.option.local_embed_queue_max_pending"),
+  localEmbedExecutionProvider: i18n.t("cli.option.local_embed_execution_provider"),
   stream: i18n.t("cli.option.stream"),
   maxTokens: i18n.t("cli.option.max_tokens"),
   showContext: i18n.t("cli.option.show_context"),
@@ -128,6 +144,41 @@ program
   .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
   .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
   .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
+  .option("--topic-shift-trigger <enabled>", optionDescriptions.topicShiftTrigger)
+  .option("--topic-shift-min-keywords <number>", optionDescriptions.topicShiftMinKeywords)
+  .option("--topic-shift-min-tokens <number>", optionDescriptions.topicShiftMinTokens)
+  .option(
+    "--topic-shift-query-similarity-soft-max <number>",
+    optionDescriptions.topicShiftQuerySimilaritySoftMax
+  )
+  .option(
+    "--topic-shift-query-similarity-hard-max <number>",
+    optionDescriptions.topicShiftQuerySimilarityHardMax
+  )
+  .option(
+    "--topic-shift-keyword-overlap-soft-max <number>",
+    optionDescriptions.topicShiftKeywordOverlapSoftMax
+  )
+  .option(
+    "--topic-shift-keyword-overlap-hard-max <number>",
+    optionDescriptions.topicShiftKeywordOverlapHardMax
+  )
+  .option(
+    "--topic-shift-retrieval-overlap-soft-max <number>",
+    optionDescriptions.topicShiftRetrievalOverlapSoftMax
+  )
+  .option(
+    "--topic-shift-retrieval-overlap-hard-max <number>",
+    optionDescriptions.topicShiftRetrievalOverlapHardMax
+  )
+  .option(
+    "--topic-shift-soft-cooldown-seconds <number>",
+    optionDescriptions.topicShiftSoftCooldownSeconds
+  )
+  .option(
+    "--topic-shift-hard-cooldown-seconds <number>",
+    optionDescriptions.topicShiftHardCooldownSeconds
+  )
   .option("--web-debug-api <enabled>", optionDescriptions.webDebugApi)
   .option("--web-file-api <enabled>", optionDescriptions.webFileApi)
   .option("--web-raw-context <enabled>", optionDescriptions.webRawContext)
@@ -139,11 +190,25 @@ program
   .option("--hybrid-prescreen-min <number>", optionDescriptions.hybridPrescreenMin)
   .option("--hybrid-prescreen-max <number>", optionDescriptions.hybridPrescreenMax)
   .option("--hybrid-rerank-multiplier <number>", optionDescriptions.hybridRerankMultiplier)
+  .option("--hybrid-rerank-hard-cap <number>", optionDescriptions.hybridRerankHardCap)
+  .option(
+    "--hybrid-hash-early-stop-min-gap <number>",
+    optionDescriptions.hybridHashEarlyStopMinGap
+  )
+  .option(
+    "--hybrid-local-rerank-timeout-ms <number>",
+    optionDescriptions.hybridLocalRerankTimeoutMs
+  )
+  .option(
+    "--hybrid-rerank-text-max-chars <number>",
+    optionDescriptions.hybridRerankTextMaxChars
+  )
   .option("--hybrid-local-cache-max <number>", optionDescriptions.hybridLocalCacheMax)
   .option("--hybrid-local-cache-ttl-ms <number>", optionDescriptions.hybridLocalCacheTtlMs)
   .option("--local-embed-batch-window-ms <number>", optionDescriptions.localEmbedBatchWindowMs)
   .option("--local-embed-max-batch-size <number>", optionDescriptions.localEmbedMaxBatchSize)
   .option("--local-embed-queue-max-pending <number>", optionDescriptions.localEmbedQueueMaxPending)
+  .option("--local-embed-execution-provider <provider>", optionDescriptions.localEmbedExecutionProvider)
   .option("--include-tags-intro <enabled>", optionDescriptions.includeTagsIntro)
   .option("--tags-intro <path>", optionDescriptions.tagsIntro)
   .option("--tags-toml <path>", optionDescriptions.tagsToml)
@@ -356,15 +421,67 @@ function applyAgentRuntimeOptions(command: Command): void {
     .option("--proactive-require-evidence <enabled>", optionDescriptions.proactiveRequireEvidence)
     .option("--proactive-timer <enabled>", optionDescriptions.proactiveTimer)
     .option("--proactive-timer-interval-seconds <number>", optionDescriptions.proactiveTimerIntervalSeconds)
+    .option("--topic-shift-trigger <enabled>", optionDescriptions.topicShiftTrigger)
+    .option("--topic-shift-min-keywords <number>", optionDescriptions.topicShiftMinKeywords)
+    .option("--topic-shift-min-tokens <number>", optionDescriptions.topicShiftMinTokens)
+    .option(
+      "--topic-shift-query-similarity-soft-max <number>",
+      optionDescriptions.topicShiftQuerySimilaritySoftMax
+    )
+    .option(
+      "--topic-shift-query-similarity-hard-max <number>",
+      optionDescriptions.topicShiftQuerySimilarityHardMax
+    )
+    .option(
+      "--topic-shift-keyword-overlap-soft-max <number>",
+      optionDescriptions.topicShiftKeywordOverlapSoftMax
+    )
+    .option(
+      "--topic-shift-keyword-overlap-hard-max <number>",
+      optionDescriptions.topicShiftKeywordOverlapHardMax
+    )
+    .option(
+      "--topic-shift-retrieval-overlap-soft-max <number>",
+      optionDescriptions.topicShiftRetrievalOverlapSoftMax
+    )
+    .option(
+      "--topic-shift-retrieval-overlap-hard-max <number>",
+      optionDescriptions.topicShiftRetrievalOverlapHardMax
+    )
+    .option(
+      "--topic-shift-soft-cooldown-seconds <number>",
+      optionDescriptions.topicShiftSoftCooldownSeconds
+    )
+    .option(
+      "--topic-shift-hard-cooldown-seconds <number>",
+      optionDescriptions.topicShiftHardCooldownSeconds
+    )
     .option("--hybrid-prescreen-ratio <number>", optionDescriptions.hybridPrescreenRatio)
     .option("--hybrid-prescreen-min <number>", optionDescriptions.hybridPrescreenMin)
     .option("--hybrid-prescreen-max <number>", optionDescriptions.hybridPrescreenMax)
     .option("--hybrid-rerank-multiplier <number>", optionDescriptions.hybridRerankMultiplier)
+    .option("--hybrid-rerank-hard-cap <number>", optionDescriptions.hybridRerankHardCap)
+    .option(
+      "--hybrid-hash-early-stop-min-gap <number>",
+      optionDescriptions.hybridHashEarlyStopMinGap
+    )
+    .option(
+      "--hybrid-local-rerank-timeout-ms <number>",
+      optionDescriptions.hybridLocalRerankTimeoutMs
+    )
+    .option(
+      "--hybrid-rerank-text-max-chars <number>",
+      optionDescriptions.hybridRerankTextMaxChars
+    )
     .option("--hybrid-local-cache-max <number>", optionDescriptions.hybridLocalCacheMax)
     .option("--hybrid-local-cache-ttl-ms <number>", optionDescriptions.hybridLocalCacheTtlMs)
     .option("--local-embed-batch-window-ms <number>", optionDescriptions.localEmbedBatchWindowMs)
     .option("--local-embed-max-batch-size <number>", optionDescriptions.localEmbedMaxBatchSize)
     .option("--local-embed-queue-max-pending <number>", optionDescriptions.localEmbedQueueMaxPending)
+    .option(
+      "--local-embed-execution-provider <provider>",
+      optionDescriptions.localEmbedExecutionProvider
+    )
     .option("--include-tags-intro <enabled>", optionDescriptions.includeTagsIntro)
     .option("--tags-intro <path>", optionDescriptions.tagsIntro)
     .option("--tags-toml <path>", optionDescriptions.tagsToml)
@@ -425,7 +542,8 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       debugTraceMaxEntries: parseOptionalNumber(asOptionalString(options.debugTraceMax)),
       localEmbedBatchWindowMs: parseOptionalNumber(asOptionalString(options.localEmbedBatchWindowMs)),
       localEmbedMaxBatchSize: parseOptionalNumber(asOptionalString(options.localEmbedMaxBatchSize)),
-      localEmbedQueueMaxPending: parseOptionalNumber(asOptionalString(options.localEmbedQueueMaxPending))
+      localEmbedQueueMaxPending: parseOptionalNumber(asOptionalString(options.localEmbedQueueMaxPending)),
+      localEmbedExecutionProvider: asOptionalString(options.localEmbedExecutionProvider)
     },
     manager: {
       maxTokensPerBlock: parseOptionalNumber(asOptionalString(options.maxTokens)),
@@ -445,10 +563,47 @@ function buildRuntimeOverrides(options: Record<string, unknown>): DeepPartial<Ap
       proactiveTimerIntervalSeconds: parseOptionalNumber(
         asOptionalString(options.proactiveTimerIntervalSeconds)
       ),
+      topicShiftTriggerEnabled: parseOptionalBoolean(asOptionalString(options.topicShiftTrigger)),
+      topicShiftMinKeywords: parseOptionalNumber(asOptionalString(options.topicShiftMinKeywords)),
+      topicShiftMinTokens: parseOptionalNumber(asOptionalString(options.topicShiftMinTokens)),
+      topicShiftQuerySimilaritySoftMax: parseOptionalFloat(
+        asOptionalString(options.topicShiftQuerySimilaritySoftMax)
+      ),
+      topicShiftQuerySimilarityHardMax: parseOptionalFloat(
+        asOptionalString(options.topicShiftQuerySimilarityHardMax)
+      ),
+      topicShiftKeywordOverlapSoftMax: parseOptionalFloat(
+        asOptionalString(options.topicShiftKeywordOverlapSoftMax)
+      ),
+      topicShiftKeywordOverlapHardMax: parseOptionalFloat(
+        asOptionalString(options.topicShiftKeywordOverlapHardMax)
+      ),
+      topicShiftRetrievalOverlapSoftMax: parseOptionalFloat(
+        asOptionalString(options.topicShiftRetrievalOverlapSoftMax)
+      ),
+      topicShiftRetrievalOverlapHardMax: parseOptionalFloat(
+        asOptionalString(options.topicShiftRetrievalOverlapHardMax)
+      ),
+      topicShiftSoftCooldownSeconds: parseOptionalNumber(
+        asOptionalString(options.topicShiftSoftCooldownSeconds)
+      ),
+      topicShiftHardCooldownSeconds: parseOptionalNumber(
+        asOptionalString(options.topicShiftHardCooldownSeconds)
+      ),
       hybridPrescreenRatio: parseOptionalFloat(asOptionalString(options.hybridPrescreenRatio)),
       hybridPrescreenMin: parseOptionalNumber(asOptionalString(options.hybridPrescreenMin)),
       hybridPrescreenMax: parseOptionalNumber(asOptionalString(options.hybridPrescreenMax)),
       hybridRerankMultiplier: parseOptionalFloat(asOptionalString(options.hybridRerankMultiplier)),
+      hybridRerankHardCap: parseOptionalNumber(asOptionalString(options.hybridRerankHardCap)),
+      hybridHashEarlyStopMinGap: parseOptionalFloat(
+        asOptionalString(options.hybridHashEarlyStopMinGap)
+      ),
+      hybridLocalRerankTimeoutMs: parseOptionalNumber(
+        asOptionalString(options.hybridLocalRerankTimeoutMs)
+      ),
+      hybridRerankTextMaxChars: parseOptionalNumber(
+        asOptionalString(options.hybridRerankTextMaxChars)
+      ),
       hybridLocalCacheMaxEntries: parseOptionalNumber(asOptionalString(options.hybridLocalCacheMax)),
       hybridLocalCacheTtlMs: parseOptionalNumber(asOptionalString(options.hybridLocalCacheTtlMs))
     }

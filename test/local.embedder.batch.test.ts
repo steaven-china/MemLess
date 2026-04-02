@@ -146,4 +146,30 @@ describe("LocalEmbedder batching and backpressure", () => {
     ]);
     expect(attempts).toBe(2);
   });
+
+  test("keeps pipeline cache isolated by execution provider", async () => {
+    let loads = 0;
+    const pipeline = vi.fn(async (input: string | string[]) => {
+      if (Array.isArray(input)) {
+        return {
+          dims: [input.length, 2],
+          data: Float32Array.from(input.flatMap((_, index) => [index + 1, 0]))
+        };
+      }
+      return { data: Float32Array.from([1, 0]) };
+    }) as unknown as PipelineMock;
+
+    mockLoadPipeline(async () => {
+      loads += 1;
+      return pipeline;
+    });
+
+    const cpu = new LocalEmbedder({ executionProvider: "cpu" });
+    const cuda = new LocalEmbedder({ executionProvider: "cuda" });
+
+    await cpu.embedBatch(["first"]);
+    await cuda.embedBatch(["second"]);
+
+    expect(loads).toBe(2);
+  });
 });

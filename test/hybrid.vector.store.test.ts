@@ -110,14 +110,14 @@ describe("HybridVectorStore", () => {
   test("respects prescreen min/max bounds", async () => {
     const lowTotal = await prepareStore({
       count: 10,
-      options: { prescreenRatio: 0.01, prescreenMin: 20, prescreenMax: 100, rerankMultiplier: 10 }
+      options: { prescreenRatio: 0.01, prescreenMin: 20, prescreenMax: 100, rerankMultiplier: 10, rerankHardCap: 100 }
     });
     await lowTotal.vectorStore.search(makeQuery(true), 10);
     expect(lowTotal.blockStore.getManyCalls[0]?.length).toBe(10);
 
     const highTotal = await prepareStore({
       count: 600,
-      options: { prescreenRatio: 0.8, prescreenMin: 20, prescreenMax: 40, rerankMultiplier: 10 }
+      options: { prescreenRatio: 0.8, prescreenMin: 20, prescreenMax: 40, rerankMultiplier: 10, rerankHardCap: 100 }
     });
     await highTotal.vectorStore.search(makeQuery(true), 20);
     expect(highTotal.blockStore.getManyCalls[0]?.length).toBe(40);
@@ -147,6 +147,39 @@ describe("HybridVectorStore", () => {
     expect(embedLocalBatchMock).toHaveBeenCalledTimes(1);
   });
 
+  test("uses query local dimension for rerank compatibility", async () => {
+    const { vectorStore, blockStore } = await prepareStore({
+      count: 2,
+      options: {
+        prescreenRatio: 1,
+        prescreenMin: 2,
+        prescreenMax: 2,
+        rerankMultiplier: 2,
+        rerankHardCap: 10,
+        hashEarlyStopMinGap: 0
+      },
+      embedLocalBatch: async (texts: string[]) =>
+        texts.map((text) => (text.includes("b-0") ? [1, 0] : [0, 1]))
+    });
+
+    const block0 = makeBlock("b-0", 0);
+    block0.embedding = [...new Array(256).fill(0), ...new Array(768).fill(0)];
+    block0.embedding[0] = 1;
+    await blockStore.upsert(block0);
+    await vectorStore.add(block0);
+
+    const block1 = makeBlock("b-1", 1);
+    block1.embedding = [...new Array(256).fill(0), ...new Array(768).fill(0)];
+    block1.embedding[1] = 1;
+    await blockStore.upsert(block1);
+    await vectorStore.add(block1);
+
+    const query = [...new Array(256).fill(0), 1, 0];
+    query[1] = 1;
+    const hits = await vectorStore.search(query, 1);
+    expect(hits[0]?.id).toBe("b-0");
+  });
+
   test("reuses local cache and invalidates cache on block update", async () => {
     const { vectorStore, blockStore, embedLocalBatchMock } = await prepareStore({
       count: 5,
@@ -168,5 +201,86 @@ describe("HybridVectorStore", () => {
     expect(embedLocalBatchMock).toHaveBeenCalledTimes(2);
     const secondCallArgs = embedLocalBatchMock.mock.calls[1]?.[0] as string[] | undefined;
     expect(secondCallArgs?.length).toBe(1);
+  });
+
+  test("skips local rerank when hash ranking is already decisive", async () => {
+    const { vectorStore, blockStore, embedLocalBatchMock } = await prepareStore({
+      count: 3,
+      options: { prescreenRatio: 1, prescreenMin: 1, prescreenMax: 3, rerankMultiplier: 3, hashEarlyStopMinGap: 0.5 }
+    });
+
+    const strong = makeBlock("b-0", 0);
+    strong.embedding = [...new Array(256).fill(0), ...new Array(768).fill(0)];
+    strong.embedding[0] = 1;
+    await blockStore.upsert(strong);
+    await vectorStore.add(strong);
+
+    const weak1 = makeBlock("b-1", 1);
+    weak1.embedding = [...new Array(256).fill(0), ...new Array(768).fill(0)];
+    weak1.embedding[1] = 1;
+    await blockStore.upsert(weak1);
+    await vectorStore.add(weak1);
+
+    const weak2 = makeBlock("b-2", 2);
+    weak2.embedding = [...new Array(256).fill(0), ...new Array(768).fill(0)];
+    weak2.embedding[2] = 1;
+    await blockStore.upsert(weak2);
+    await vectorStore.add(weak2);
+
+    const query = new Array(1024).fill(0);
+    query[0] = 1;
+    query[256] = 1;
+    const hits = await vectorStore.search(query, 1);
+
+    expect(hits[0]?.id).toBe("b-0");
+    expect(embedLocalBatchMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("falls back to hash scores when local rerank times out", async () => {
+    const { vectorStore } = await prepareStore({
+      count: 12,
+      options: {
+        prescreenRatio: 1,
+        prescreenMin: 1,
+        prescreenMax: 12,
+        rerankMultiplier: 2,
+        hashEarlyStopMinGap: 0,
+        localRerankTimeoutMs: 1
+      },
+      embedLocalBatch: async (texts: string[]) =>
+        await new Promise<number[][]>((resolve) => {
+          setTimeout(() => {
+            resolve(texts.map(() => makeLocalVector(1)));
+          }, 20);
+        })
+    });
+
+    const result = await vectorStore.search(makeQuery(true), 3);
+    expect(result.length).toBe(3);
+  });
+
+  test("clips rerank text length before local embedding", async () => {
+    const { vectorStore, blockStore, embedLocalBatchMock } = await prepareStore({
+      count: 1,
+      options: {
+        prescreenRatio: 1,
+        prescreenMin: 1,
+        prescreenMax: 1,
+        rerankMultiplier: 1,
+        hashEarlyStopMinGap: 0,
+        rerankTextMaxChars: 20
+      }
+    });
+
+    const block = makeBlock("b-0", 0);
+    block.summary = "summary-" + "x".repeat(100);
+    block.rawEvents = [{ id: "event-b-0", role: "user", text: "raw-" + "y".repeat(100), timestamp: 1 }];
+    block.embedding = [...makeHashVector(0), ...new Array(768).fill(0)];
+    await blockStore.upsert(block);
+    await vectorStore.add(block);
+
+    await vectorStore.search(makeQuery(true), 1);
+    const sentTexts = embedLocalBatchMock.mock.calls[0]?.[0] as string[] | undefined;
+    expect(sentTexts?.[0]?.length).toBeLessThanOrEqual(20);
   });
 });

@@ -4,6 +4,8 @@ export interface ProactiveTimerSchedulerConfig {
   agent: Agent;
   enabled: boolean;
   intervalSeconds: number;
+  onWakeup?: (message: string) => void | Promise<void>;
+  onError?: (error: unknown) => void;
 }
 
 export class ProactiveTimerScheduler {
@@ -32,7 +34,12 @@ export class ProactiveTimerScheduler {
     if (this.running) return;
     this.running = true;
     try {
-      await this.config.agent.tickProactiveWakeup();
+      const proactiveText = await this.config.agent.tickProactiveWakeup();
+      if (proactiveText && this.config.onWakeup) {
+        await this.config.onWakeup(proactiveText);
+      }
+    } catch (error) {
+      this.config.onError?.(error);
     } finally {
       this.running = false;
     }

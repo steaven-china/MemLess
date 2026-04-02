@@ -28,6 +28,8 @@ describe("Web server", () => {
     expect(html).toContain("/api/debug/traces");
     expect(html).toContain('replyText + "\\n\\n" + proactiveText');
     expect(html).toContain('textSoFar + "\\n\\n" + proactive');
+    expect(html).toContain("/api/proactive/stream?sessionId=");
+    expect(html).toContain('source.addEventListener("proactive"');
   });
 
   test("exposes web capabilities", async () => {
@@ -131,6 +133,30 @@ describe("Web server", () => {
     expect(text).toContain("\"latestReadFilePath\"");
   });
 
+  test("opens proactive sse stream and emits ready event", async () => {
+    started = await startWebServer({
+      host: "127.0.0.1",
+      port: 0
+    });
+
+    const controller = new AbortController();
+    const response = await fetch(`${started.url}/api/proactive/stream?sessionId=web-proactive-s1`, {
+      signal: controller.signal
+    });
+    expect(response.status).toBe(200);
+    const contentType = response.headers.get("content-type") ?? "";
+    expect(contentType.includes("text/event-stream")).toBe(true);
+    expect(response.body).toBeTruthy();
+
+    const reader = response.body!.getReader();
+    const chunk = await reader.read();
+    controller.abort();
+
+    const decoded = new TextDecoder("utf-8").decode(chunk.value ?? new Uint8Array());
+    expect(decoded).toContain("event: ready");
+    expect(decoded).toContain("\"sessionId\":\"web-proactive-s1\"");
+  });
+
   test("isolates debug lastContext by session", async () => {
     started = await startWebServer({
       host: "127.0.0.1",
@@ -230,9 +256,20 @@ describe("Web server", () => {
       counts?: { blocks?: number; traces?: number };
       blocks?: Array<{ id?: string; order?: number; startTime?: number }>;
       relations?: Array<{ order?: number; timestamp?: number }>;
+      proactive?: {
+        latest?: { reason?: string } | null;
+        recent?: unknown[];
+        nonTriggerReasons?: unknown[];
+      };
       storage?: Record<string, unknown>;
     };
     expect(typeof debugData.storage).toBe("object");
+    expect(typeof debugData.proactive).toBe("object");
+    expect(Array.isArray(debugData.proactive?.recent)).toBe(true);
+    expect(Array.isArray(debugData.proactive?.nonTriggerReasons)).toBe(true);
+    if (debugData.proactive?.latest) {
+      expect(typeof debugData.proactive.latest.reason).toBe("string");
+    }
     expect((debugData.counts?.blocks ?? 0)).toBeGreaterThan(0);
     expect(Array.isArray(debugData.blocks)).toBe(true);
     expect((debugData.blocks?.[0]?.order ?? 0)).toBeGreaterThan(0);

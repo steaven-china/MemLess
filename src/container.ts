@@ -121,6 +121,13 @@ export interface RuntimeOptions {
   enableAgentTools?: boolean;
   nowMs?: () => number;
   blockIdFactory?: () => string;
+  onProactiveWakeup?: (event: RuntimeProactiveWakeupEvent) => void | Promise<void>;
+}
+
+export interface RuntimeProactiveWakeupEvent {
+  text: string;
+  triggerSource: "timer";
+  at: number;
 }
 
 export function createRuntime(
@@ -128,6 +135,13 @@ export function createRuntime(
   options: RuntimeOptions = {}
 ): Runtime {
   const config = loadConfig(overrides);
+  const localProvider = config.component.localEmbedExecutionProvider.trim().toLowerCase();
+  if (config.component.embedder === "hash" && localProvider !== "auto") {
+    console.warn(
+      `[config] localEmbedExecutionProvider="${config.component.localEmbedExecutionProvider}" is ignored when embedder="hash". ` +
+        "Set MLEX_EMBEDDER=local|hybrid to enable local acceleration."
+    );
+  }
   const envIncludeTagsIntro = parseOptionalBoolean(process.env.MLEX_INCLUDE_TAGS_INTRO);
   const envTagsIntroPath = normalizeEnvString(process.env.MLEX_TAGS_INTRO);
   const envTagsTomlPath = normalizeEnvString(process.env.MLEX_TAGS_TOML);
@@ -266,6 +280,10 @@ function registerCoreDependencies(input: {
           prescreenMin: config.manager.hybridPrescreenMin,
           prescreenMax: config.manager.hybridPrescreenMax,
           rerankMultiplier: config.manager.hybridRerankMultiplier,
+          rerankHardCap: config.manager.hybridRerankHardCap,
+          hashEarlyStopMinGap: config.manager.hybridHashEarlyStopMinGap,
+          localRerankTimeoutMs: config.manager.hybridLocalRerankTimeoutMs,
+          rerankTextMaxChars: config.manager.hybridRerankTextMaxChars,
           localCacheMaxEntries: config.manager.hybridLocalCacheMaxEntries,
           localCacheTtlMs: config.manager.hybridLocalCacheTtlMs,
           nowMs,
@@ -289,7 +307,8 @@ function registerCoreDependencies(input: {
         mirror: config.component.embeddingMirror,
         batchWindowMs: config.component.localEmbedBatchWindowMs,
         maxBatchSize: config.component.localEmbedMaxBatchSize,
-        queueMaxPending: config.component.localEmbedQueueMaxPending
+        queueMaxPending: config.component.localEmbedQueueMaxPending,
+        executionProvider: config.component.localEmbedExecutionProvider
       });
     }
     if (config.component.embedder === "hybrid") {
@@ -301,6 +320,7 @@ function registerCoreDependencies(input: {
         localBatchWindowMs: config.component.localEmbedBatchWindowMs,
         localMaxBatchSize: config.component.localEmbedMaxBatchSize,
         localQueueMaxPending: config.component.localEmbedQueueMaxPending,
+        localExecutionProvider: config.component.localEmbedExecutionProvider,
         forceHybridTags: ["important", "conflict"],
         defaultMode: "auto"
       });
@@ -549,7 +569,19 @@ function registerRuntimeDependencies(input: {
         config.manager.searchAugmentMode === "predictive" &&
         config.manager.proactiveWakeupEnabled &&
         config.manager.proactiveTimerEnabled,
-      intervalSeconds: Math.max(1, config.manager.proactiveTimerIntervalSeconds)
+      intervalSeconds: Math.max(1, config.manager.proactiveTimerIntervalSeconds),
+      onWakeup: async (text) => {
+        if (!text) return;
+        await options.onProactiveWakeup?.({
+          text,
+          triggerSource: "timer",
+          at: Date.now()
+        });
+      },
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[proactive-timer] tick failed: ${message}`);
+      }
     });
   });
 

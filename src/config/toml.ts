@@ -220,6 +220,17 @@ function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignNumber(output, "lowEntropyHardStreakK", table.lowEntropyHardStreakK, filePath, `${fieldPath}.lowEntropyHardStreakK`);
   assignNumber(output, "lowEntropySoftCooldownSeconds", table.lowEntropySoftCooldownSeconds, filePath, `${fieldPath}.lowEntropySoftCooldownSeconds`);
   assignNumber(output, "lowEntropyHardCooldownSeconds", table.lowEntropyHardCooldownSeconds, filePath, `${fieldPath}.lowEntropyHardCooldownSeconds`);
+  assignBoolean(output, "topicShiftTriggerEnabled", table.topicShiftTriggerEnabled, filePath, `${fieldPath}.topicShiftTriggerEnabled`);
+  assignNumber(output, "topicShiftMinKeywords", table.topicShiftMinKeywords, filePath, `${fieldPath}.topicShiftMinKeywords`);
+  assignNumber(output, "topicShiftMinTokens", table.topicShiftMinTokens, filePath, `${fieldPath}.topicShiftMinTokens`);
+  assignNumber(output, "topicShiftQuerySimilaritySoftMax", table.topicShiftQuerySimilaritySoftMax, filePath, `${fieldPath}.topicShiftQuerySimilaritySoftMax`);
+  assignNumber(output, "topicShiftQuerySimilarityHardMax", table.topicShiftQuerySimilarityHardMax, filePath, `${fieldPath}.topicShiftQuerySimilarityHardMax`);
+  assignNumber(output, "topicShiftKeywordOverlapSoftMax", table.topicShiftKeywordOverlapSoftMax, filePath, `${fieldPath}.topicShiftKeywordOverlapSoftMax`);
+  assignNumber(output, "topicShiftKeywordOverlapHardMax", table.topicShiftKeywordOverlapHardMax, filePath, `${fieldPath}.topicShiftKeywordOverlapHardMax`);
+  assignNumber(output, "topicShiftRetrievalOverlapSoftMax", table.topicShiftRetrievalOverlapSoftMax, filePath, `${fieldPath}.topicShiftRetrievalOverlapSoftMax`);
+  assignNumber(output, "topicShiftRetrievalOverlapHardMax", table.topicShiftRetrievalOverlapHardMax, filePath, `${fieldPath}.topicShiftRetrievalOverlapHardMax`);
+  assignNumber(output, "topicShiftSoftCooldownSeconds", table.topicShiftSoftCooldownSeconds, filePath, `${fieldPath}.topicShiftSoftCooldownSeconds`);
+  assignNumber(output, "topicShiftHardCooldownSeconds", table.topicShiftHardCooldownSeconds, filePath, `${fieldPath}.topicShiftHardCooldownSeconds`);
   assignBoolean(output, "relationTriggerEnabled", table.relationTriggerEnabled, filePath, `${fieldPath}.relationTriggerEnabled`);
   assignNumber(output, "relationTriggerWindowSize", table.relationTriggerWindowSize, filePath, `${fieldPath}.relationTriggerWindowSize`);
   assignNumber(output, "relationTriggerStreakRequired", table.relationTriggerStreakRequired, filePath, `${fieldPath}.relationTriggerStreakRequired`);
@@ -235,6 +246,10 @@ function mapManager(value: unknown, filePath: string, fieldPath: string): DeepPa
   assignNumber(output, "hybridPrescreenMin", table.hybridPrescreenMin, filePath, `${fieldPath}.hybridPrescreenMin`);
   assignNumber(output, "hybridPrescreenMax", table.hybridPrescreenMax, filePath, `${fieldPath}.hybridPrescreenMax`);
   assignNumber(output, "hybridRerankMultiplier", table.hybridRerankMultiplier, filePath, `${fieldPath}.hybridRerankMultiplier`);
+  assignNumber(output, "hybridRerankHardCap", table.hybridRerankHardCap, filePath, `${fieldPath}.hybridRerankHardCap`);
+  assignNumber(output, "hybridHashEarlyStopMinGap", table.hybridHashEarlyStopMinGap, filePath, `${fieldPath}.hybridHashEarlyStopMinGap`);
+  assignNumber(output, "hybridLocalRerankTimeoutMs", table.hybridLocalRerankTimeoutMs, filePath, `${fieldPath}.hybridLocalRerankTimeoutMs`);
+  assignNumber(output, "hybridRerankTextMaxChars", table.hybridRerankTextMaxChars, filePath, `${fieldPath}.hybridRerankTextMaxChars`);
   assignNumber(output, "hybridLocalCacheMaxEntries", table.hybridLocalCacheMaxEntries, filePath, `${fieldPath}.hybridLocalCacheMaxEntries`);
   assignNumber(output, "hybridLocalCacheTtlMs", table.hybridLocalCacheTtlMs, filePath, `${fieldPath}.hybridLocalCacheTtlMs`);
   assignNumber(output, "agentMaxToolRounds", table.agentMaxToolRounds, filePath, `${fieldPath}.agentMaxToolRounds`);
@@ -277,6 +292,13 @@ function mapComponent(value: unknown, filePath: string, fieldPath: string): Deep
   assignNumber(output, "localEmbedBatchWindowMs", table.localEmbedBatchWindowMs, filePath, `${fieldPath}.localEmbedBatchWindowMs`);
   assignNumber(output, "localEmbedMaxBatchSize", table.localEmbedMaxBatchSize, filePath, `${fieldPath}.localEmbedMaxBatchSize`);
   assignNumber(output, "localEmbedQueueMaxPending", table.localEmbedQueueMaxPending, filePath, `${fieldPath}.localEmbedQueueMaxPending`);
+  assignString(
+    output,
+    "localEmbedExecutionProvider",
+    table.localEmbedExecutionProvider,
+    filePath,
+    `${fieldPath}.localEmbedExecutionProvider`
+  );
   assignString(output, "rawStoreBackend", table.rawStoreBackend, filePath, `${fieldPath}.rawStoreBackend`);
   assignString(output, "rawStoreFilePath", table.rawStoreFilePath, filePath, `${fieldPath}.rawStoreFilePath`);
   assignString(output, "relationStoreBackend", table.relationStoreBackend, filePath, `${fieldPath}.relationStoreBackend`);

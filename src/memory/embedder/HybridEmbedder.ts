@@ -43,6 +43,8 @@ export interface HybridEmbedderConfig {
   localMaxBatchSize?: number;
   /** Local queue max pending */
   localQueueMaxPending?: number;
+  /** Local ONNX execution provider */
+  localExecutionProvider?: string;
   /** 强制使用 hybrid 的标签列表（默认 ["important", "conflict"]） */
   forceHybridTags?: string[];
   /** 默认模式（默认 "auto"） */
@@ -68,7 +70,8 @@ export class HybridEmbedder implements IEmbedder {
       mirror: config.localMirror,
       batchWindowMs: config.localBatchWindowMs,
       maxBatchSize: config.localMaxBatchSize,
-      queueMaxPending: config.localQueueMaxPending
+      queueMaxPending: config.localQueueMaxPending,
+      executionProvider: config.localExecutionProvider
     });
   }
 

@@ -327,6 +327,66 @@ npx mlex chat --tags-intro "D:\Work Space\MLEX\AgentDocs\TagsIntro.md"
 
 ---
 
+## Topic Shift Proactive Trigger
+
+MLEX now supports a dedicated topic-shift proactive signal (`topic_shift_soft` / `topic_shift_hard`).
+
+Detection uses a chained check:
+- current query vs previous query semantic similarity
+- current query vs previous query keyword overlap
+- current retrieval top blocks vs previous retrieval top blocks overlap
+
+When at least 2 signals cross threshold, proactive follow-up can be injected to confirm new goals/constraints.
+
+### `config.toml` example
+
+```toml
+[manager]
+topicShiftTriggerEnabled = true
+topicShiftMinKeywords = 2
+topicShiftMinTokens = 3
+topicShiftQuerySimilaritySoftMax = 0.35
+topicShiftQuerySimilarityHardMax = 0.2
+topicShiftKeywordOverlapSoftMax = 0.3
+topicShiftKeywordOverlapHardMax = 0.15
+topicShiftRetrievalOverlapSoftMax = 0.35
+topicShiftRetrievalOverlapHardMax = 0.2
+topicShiftSoftCooldownSeconds = 180
+topicShiftHardCooldownSeconds = 600
+```
+
+### PowerShell env example
+
+```powershell
+$env:MLEX_TOPIC_SHIFT_TRIGGER_ENABLED = "true"
+$env:MLEX_TOPIC_SHIFT_MIN_KEYWORDS = "2"
+$env:MLEX_TOPIC_SHIFT_MIN_TOKENS = "3"
+$env:MLEX_TOPIC_SHIFT_QUERY_SIMILARITY_SOFT_MAX = "0.35"
+$env:MLEX_TOPIC_SHIFT_QUERY_SIMILARITY_HARD_MAX = "0.2"
+$env:MLEX_TOPIC_SHIFT_KEYWORD_OVERLAP_SOFT_MAX = "0.3"
+$env:MLEX_TOPIC_SHIFT_KEYWORD_OVERLAP_HARD_MAX = "0.15"
+$env:MLEX_TOPIC_SHIFT_RETRIEVAL_OVERLAP_SOFT_MAX = "0.35"
+$env:MLEX_TOPIC_SHIFT_RETRIEVAL_OVERLAP_HARD_MAX = "0.2"
+$env:MLEX_TOPIC_SHIFT_SOFT_COOLDOWN_SECONDS = "180"
+$env:MLEX_TOPIC_SHIFT_HARD_COOLDOWN_SECONDS = "600"
+```
+
+### CLI overrides
+
+- `--topic-shift-trigger <true|false>`
+- `--topic-shift-min-keywords <number>`
+- `--topic-shift-min-tokens <number>`
+- `--topic-shift-query-similarity-soft-max <number>`
+- `--topic-shift-query-similarity-hard-max <number>`
+- `--topic-shift-keyword-overlap-soft-max <number>`
+- `--topic-shift-keyword-overlap-hard-max <number>`
+- `--topic-shift-retrieval-overlap-soft-max <number>`
+- `--topic-shift-retrieval-overlap-hard-max <number>`
+- `--topic-shift-soft-cooldown-seconds <number>`
+- `--topic-shift-hard-cooldown-seconds <number>`
+
+---
+
 ## Hybrid Performance Tuning
 
 Hybrid retrieval now supports full performance knobs through `config.toml`, env, and CLI overrides.
@@ -339,6 +399,10 @@ hybridPrescreenRatio = 0.05
 hybridPrescreenMin = 20
 hybridPrescreenMax = 100
 hybridRerankMultiplier = 3
+hybridRerankHardCap = 16
+hybridHashEarlyStopMinGap = 0.12
+hybridLocalRerankTimeoutMs = 350
+hybridRerankTextMaxChars = 512
 hybridLocalCacheMaxEntries = 2000
 hybridLocalCacheTtlMs = 300000
 
@@ -346,6 +410,7 @@ hybridLocalCacheTtlMs = 300000
 localEmbedBatchWindowMs = 5
 localEmbedMaxBatchSize = 32
 localEmbedQueueMaxPending = 1024
+localEmbedExecutionProvider = "auto"
 ```
 
 ### PowerShell env example
@@ -355,11 +420,16 @@ $env:MLEX_HYBRID_PRESCREEN_RATIO = "0.05"
 $env:MLEX_HYBRID_PRESCREEN_MIN = "20"
 $env:MLEX_HYBRID_PRESCREEN_MAX = "100"
 $env:MLEX_HYBRID_RERANK_MULTIPLIER = "3"
+$env:MLEX_HYBRID_RERANK_HARD_CAP = "16"
+$env:MLEX_HYBRID_HASH_EARLY_STOP_MIN_GAP = "0.12"
+$env:MLEX_HYBRID_LOCAL_RERANK_TIMEOUT_MS = "350"
+$env:MLEX_HYBRID_RERANK_TEXT_MAX_CHARS = "512"
 $env:MLEX_HYBRID_LOCAL_CACHE_MAX = "2000"
 $env:MLEX_HYBRID_LOCAL_CACHE_TTL_MS = "300000"
 $env:MLEX_LOCAL_EMBED_BATCH_WINDOW_MS = "5"
 $env:MLEX_LOCAL_EMBED_MAX_BATCH_SIZE = "32"
 $env:MLEX_LOCAL_EMBED_QUEUE_MAX_PENDING = "1024"
+$env:MLEX_LOCAL_EMBED_EXECUTION_PROVIDER = "auto"
 ```
 
 ### CLI overrides
@@ -368,11 +438,49 @@ $env:MLEX_LOCAL_EMBED_QUEUE_MAX_PENDING = "1024"
 - `--hybrid-prescreen-min <number>`
 - `--hybrid-prescreen-max <number>`
 - `--hybrid-rerank-multiplier <number>`
+- `--hybrid-rerank-hard-cap <number>`
+- `--hybrid-hash-early-stop-min-gap <number>`
+- `--hybrid-local-rerank-timeout-ms <number>`
+- `--hybrid-rerank-text-max-chars <number>`
 - `--hybrid-local-cache-max <number>`
 - `--hybrid-local-cache-ttl-ms <number>`
 - `--local-embed-batch-window-ms <number>`
 - `--local-embed-max-batch-size <number>`
 - `--local-embed-queue-max-pending <number>`
+- `--local-embed-execution-provider <provider>`
+
+### GPU / NPU acceleration
+
+`MLEX_LOCAL_EMBED_EXECUTION_PROVIDER` (or `localEmbedExecutionProvider`) controls the ONNX execution provider used by local embedding.
+
+- `auto` (default): keep Transformers.js default provider order
+- Typical acceleration values: `cuda`, `dml`, `openvino`, `qnn` (depends on your ONNX Runtime build)
+- Robust fallback: if the configured provider fails at model load time, MLEX retries with `cpu`
+- Important: this setting is only used when `MLEX_EMBEDDER=local|hybrid` (hash embedder ignores it)
+
+#### Install GPU/NPU ONNX Runtime (required for real acceleration)
+
+This repo currently uses `@xenova/transformers@2.17.2` (ORT ABI around `1.14.x`).
+To enable hardware providers like `cuda`/`dml`, install the GPU runtime package alias:
+
+```powershell
+npm i onnxruntime-node@npm:onnxruntime-node-gpu@1.14.0 --save-exact
+```
+
+Then set:
+
+```powershell
+$env:MLEX_EMBEDDER = "hybrid"
+$env:MLEX_LOCAL_EMBED_EXECUTION_PROVIDER = "cuda"  # or dml/qnn/openvino based on runtime
+```
+
+If provider is unavailable, MLEX prints a warning and falls back to CPU.
+
+To switch back to CPU runtime package:
+
+```powershell
+npm i onnxruntime-node@1.14.0 --save-exact
+```
 
 ---
 
@@ -397,9 +505,43 @@ The following tool results can be written into memory:
 - `GET /api/capabilities`
 - `POST /api/chat`
 - `POST /api/chat/stream` (SSE)
+- `GET /api/proactive/stream` (SSE, timer proactive push by `sessionId`)
 - `POST /api/seal`
 - `GET /api/debug/*` (debug API must be enabled)
 - `GET /api/files/list`, `GET /api/files/read` (file API must be enabled)
+
+`GET /api/debug/database` now includes structured proactive diagnostics:
+- `proactive.latest` (latest proactive signal snapshot)
+- `proactive.recent` (recent signal timeline)
+- `proactive.nonTriggerReasons` (aggregated non-trigger reasons with counts)
+
+---
+
+## Bench Compare
+
+Run hash vs hybrid benchmark suites with one command:
+
+```bash
+npm run bench:compare
+```
+
+Quick mode (smaller sample for fast regression checks):
+
+```bash
+npm run bench:compare:quick
+```
+
+Useful overrides:
+- `--concurrency=<n>`
+- `--max-cases=<n>`
+- `--category-max-cases=<n>`
+- `--report=<path>`
+
+Example:
+
+```bash
+npx tsx scripts/bench-compare.ts --concurrency=2 --max-cases=60 --report=.mlex/bench/compare-custom.json
+```
 
 ---
 

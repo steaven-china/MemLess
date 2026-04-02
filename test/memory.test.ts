@@ -118,6 +118,34 @@ describe("PartitionMemoryManager", () => {
     expect(context.proactiveSignal?.timerIntervalSeconds).toBe(15);
   });
 
+  test("collects structured proactive diagnostics", async () => {
+    const runtime = createRuntime({
+      manager: {
+        proactiveWakeupEnabled: true,
+        predictionEnabled: true
+      },
+      component: {
+        chunkStrategy: "fixed"
+      }
+    });
+
+    const now = Date.now();
+    await runtime.memoryManager.addEvent({
+      id: createId("event"),
+      role: "user",
+      text: "请继续支付重试的排查",
+      timestamp: now
+    });
+    await runtime.memoryManager.sealCurrentBlock();
+    await runtime.memoryManager.getContext("继续");
+
+    const diagnostics = runtime.memoryManager.getProactiveSignalDiagnostics();
+    expect(diagnostics.latest === null || typeof diagnostics.latest.reason === "string").toBe(true);
+    expect(Array.isArray(diagnostics.recent)).toBe(true);
+    expect(diagnostics.recent.length).toBeGreaterThan(0);
+    expect(Array.isArray(diagnostics.nonTriggerReasons)).toBe(true);
+  });
+
   test("supports relation graph traversal for directional query", async () => {
     const runtime = createRuntime({
       manager: {

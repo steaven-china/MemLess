@@ -9,6 +9,10 @@ export interface HybridVectorStoreOptions {
   prescreenMin: number;
   prescreenMax: number;
   rerankMultiplier: number;
+  rerankHardCap?: number;
+  hashEarlyStopMinGap?: number;
+  localRerankTimeoutMs?: number;
+  rerankTextMaxChars?: number;
   localCacheMaxEntries: number;
   localCacheTtlMs: number;
   nowMs?: () => number;
@@ -44,6 +48,10 @@ export class HybridVectorStore implements IVectorStore {
   private readonly prescreenMin: number;
   private readonly prescreenMax: number;
   private readonly rerankMultiplier: number;
+  private readonly rerankHardCap: number;
+  private readonly hashEarlyStopMinGap: number;
+  private readonly localRerankTimeoutMs: number;
+  private readonly rerankTextMaxChars: number;
   private readonly localCacheMaxEntries: number;
   private readonly localCacheTtlMs: number;
   private readonly nowMs: () => number;
@@ -61,6 +69,10 @@ export class HybridVectorStore implements IVectorStore {
     const prescreenMax = clampInt(options.prescreenMax, this.prescreenMin, Number.MAX_SAFE_INTEGER, 100);
     this.prescreenMax = Math.max(this.prescreenMin, prescreenMax);
     this.rerankMultiplier = Math.max(1, toFiniteNumber(options.rerankMultiplier, 3));
+    this.rerankHardCap = clampInt(options.rerankHardCap ?? 16, 1, Number.MAX_SAFE_INTEGER, 16);
+    this.hashEarlyStopMinGap = clamp(options.hashEarlyStopMinGap ?? 0.12, 0, 1, 0.12);
+    this.localRerankTimeoutMs = clampInt(options.localRerankTimeoutMs ?? 350, 1, 60_000, 350);
+    this.rerankTextMaxChars = clampInt(options.rerankTextMaxChars ?? 512, 16, 4096, 512);
     this.localCacheMaxEntries = clampInt(options.localCacheMaxEntries, 0, Number.MAX_SAFE_INTEGER, 2000);
     this.localCacheTtlMs = clampInt(options.localCacheTtlMs, 0, Number.MAX_SAFE_INTEGER, 300_000);
     this.nowMs = options.nowMs ?? (() => Date.now());
@@ -82,10 +94,9 @@ export class HybridVectorStore implements IVectorStore {
     if (topK <= 0 || this.hashVecs.size === 0) return [];
 
     this.pruneExpiredLocalCache(this.nowMs());
-    const query = this.normalizeQueryVector(queryVec);
-    const queryHash = query.slice(0, this.hashDim);
-    const queryLocal = query.slice(this.hashDim, this.hashDim + this.localDim);
-    const queryLocalNonZero = hasNonZero(queryLocal);
+    const { queryHash, queryLocal } = this.splitQueryVector(queryVec);
+    const queryLocalDim = queryLocal.length;
+    const queryLocalNonZero = queryLocalDim > 0 && hasNonZero(queryLocal);
     const prescreenK = this.computePrescreenK(this.hashVecs.size);
 
     const hashScores = Array.from(this.hashVecs.entries()).map(([id, hash]) => ({
@@ -95,7 +106,19 @@ export class HybridVectorStore implements IVectorStore {
     hashScores.sort((a, b) => b.hashScore - a.hashScore);
     const prescreened = hashScores.slice(0, prescreenK);
 
-    if (!queryLocalNonZero || this.localDim === 0) {
+    if (!queryLocalNonZero) {
+      return this.hydrateResults(
+        prescreened.map((item) => ({ id: item.id, score: item.hashScore })),
+        topK
+      );
+    }
+
+    if (this.shouldSkipLocalRerank(prescreened, topK)) {
+      this.trace("local.rerank.skipped_hash_confident", {
+        topK,
+        prescreenK: prescreened.length,
+        minGap: this.hashEarlyStopMinGap
+      });
       return this.hydrateResults(
         prescreened.map((item) => ({ id: item.id, score: item.hashScore })),
         topK
@@ -104,7 +127,8 @@ export class HybridVectorStore implements IVectorStore {
 
     const rerankCount = Math.min(
       prescreened.length,
-      Math.max(1, Math.ceil(topK * this.rerankMultiplier))
+      Math.max(1, Math.ceil(topK * this.rerankMultiplier)),
+      this.rerankHardCap
     );
     const toRerank = prescreened.slice(0, rerankCount);
     const candidateIds = toRerank.map((candidate) => candidate.id);
@@ -116,14 +140,14 @@ export class HybridVectorStore implements IVectorStore {
     const nowMs = this.nowMs();
 
     for (const candidate of toRerank) {
-      const cached = this.getLocalCache(candidate.id, nowMs);
+      const cached = this.getLocalCache(candidate.id, nowMs, queryLocalDim);
       if (cached) {
         localVecById.set(candidate.id, cached);
         continue;
       }
 
       const candidateBlock = blockMap.get(candidate.id);
-      const text = buildSemanticText(candidateBlock);
+      const text = buildSemanticText(candidateBlock, this.rerankTextMaxChars);
       if (!text) {
         continue;
       }
@@ -133,15 +157,18 @@ export class HybridVectorStore implements IVectorStore {
 
     if (pendingTexts.length > 0) {
       try {
-        const computed = await this.embedder.embedLocalBatch(pendingTexts);
+        const computed = await withTimeout(
+          this.embedder.embedLocalBatch(pendingTexts),
+          this.localRerankTimeoutMs
+        );
         for (let index = 0; index < pendingIds.length; index += 1) {
           const blockId = pendingIds[index];
           if (!blockId) continue;
           const localVec = computed[index];
-          if (!localVec || localVec.length !== this.localDim) {
+          if (!localVec || localVec.length !== queryLocalDim) {
             this.trace("local.vector.dimension_mismatch", {
               blockId,
-              expected: this.localDim,
+              expected: queryLocalDim,
               actual: Array.isArray(localVec) ? localVec.length : -1
             });
             continue;
@@ -150,8 +177,10 @@ export class HybridVectorStore implements IVectorStore {
           this.setLocalCache(blockId, localVec, nowMs);
         }
       } catch (error) {
+        const timeout = error instanceof TimeoutError;
         this.trace("local.batch_embed.failed", {
           error: toErrorMessage(error),
+          timeout,
           candidateCount: pendingTexts.length
         });
         return this.hydrateResults(
@@ -178,14 +207,38 @@ export class HybridVectorStore implements IVectorStore {
     return Math.min(total, Math.min(this.prescreenMax, bounded));
   }
 
-  private normalizeQueryVector(queryVec: number[]): number[] {
-    const expected = this.hashDim + this.localDim;
-    if (queryVec.length === expected) return queryVec;
-    this.trace("query.vector.dimension_mismatch", {
-      expected,
-      actual: queryVec.length
-    });
-    return normalizeVector(queryVec, expected);
+  private shouldSkipLocalRerank(
+    prescreened: Array<{ id: string; hashScore: number }>,
+    topK: number
+  ): boolean {
+    if (this.hashEarlyStopMinGap <= 0) return false;
+    const boundaryIndex = topK - 1;
+    const nextIndex = topK;
+    if (boundaryIndex < 0 || nextIndex >= prescreened.length) {
+      return false;
+    }
+    const boundaryScore = prescreened[boundaryIndex]?.hashScore ?? 0;
+    const nextScore = prescreened[nextIndex]?.hashScore ?? 0;
+    return boundaryScore - nextScore >= this.hashEarlyStopMinGap;
+  }
+
+  private splitQueryVector(queryVec: number[]): { queryHash: number[]; queryLocal: number[] } {
+    if (queryVec.length < this.hashDim) {
+      this.trace("query.vector.dimension_mismatch", {
+        expectedAtLeast: this.hashDim,
+        actual: queryVec.length
+      });
+    }
+
+    const queryHash = normalizeVector(queryVec.slice(0, this.hashDim), this.hashDim);
+    const queryLocal = queryVec.length > this.hashDim ? queryVec.slice(this.hashDim) : [];
+    if (queryLocal.length > 0 && this.localDim > 0 && queryLocal.length !== this.localDim) {
+      this.trace("query.vector.local_dimension_mismatch", {
+        configured: this.localDim,
+        actual: queryLocal.length
+      });
+    }
+    return { queryHash, queryLocal };
   }
 
   private pruneExpiredLocalCache(nowMs: number): void {
@@ -202,7 +255,7 @@ export class HybridVectorStore implements IVectorStore {
     }
   }
 
-  private getLocalCache(blockId: string, nowMs: number): number[] | undefined {
+  private getLocalCache(blockId: string, nowMs: number, expectedDim: number): number[] | undefined {
     if (!this.cacheEnabled()) return undefined;
     const entry = this.localCache.get(blockId);
     if (!entry) return undefined;
@@ -210,10 +263,10 @@ export class HybridVectorStore implements IVectorStore {
       this.localCache.delete(blockId);
       return undefined;
     }
-    if (entry.vec.length !== this.localDim) {
+    if (expectedDim > 0 && entry.vec.length !== expectedDim) {
       this.trace("local.cache.dimension_mismatch", {
         blockId,
-        expected: this.localDim,
+        expected: expectedDim,
         actual: entry.vec.length
       });
       this.localCache.delete(blockId);
@@ -321,16 +374,42 @@ function clampInt(value: number, min: number, max: number, fallback: number): nu
   return Math.min(max, Math.max(min, normalized));
 }
 
-function buildSemanticText(block: MemoryBlock | undefined): string {
+function buildSemanticText(block: MemoryBlock | undefined, maxChars: number): string {
   if (!block) return "";
-  const parts = [block.summary ?? ""];
-  for (const rawEvent of block.rawEvents ?? []) {
-    parts.push(rawEvent.text);
-  }
-  return parts.join(" ").trim();
+  const summary = (block.summary ?? "").trim();
+  const firstRaw = (block.rawEvents?.[0]?.text ?? "").trim();
+  const text = summary.length > 0
+    ? summary.length > firstRaw.length
+      ? summary
+      : `${summary} ${firstRaw}`.trim()
+    : firstRaw;
+  if (!text) return "";
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars);
 }
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+class TimeoutError extends Error {}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  if (timeoutMs <= 0) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new TimeoutError(`Local rerank timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }

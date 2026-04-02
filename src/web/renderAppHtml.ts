@@ -247,6 +247,7 @@ export function renderAppHtml(i18n: I18n): string {
     const activeSessionId = loadPersistedSessionId();
     let inflightRequestId = "";
     let activeAbortController = null;
+    let proactiveEventSource = null;
     let pendingInterruptedContext = null;
     const INTERRUPT_RETAIN_SENTENCE_LIMIT = 3;
     const INTERRUPT_RETAIN_FALLBACK_CHARS = 180;
@@ -256,6 +257,7 @@ export function renderAppHtml(i18n: I18n): string {
     stopBtn.disabled = true;
     addBubble("assistant", t("web.greeting"));
     void initializeCapabilities();
+    initProactiveStream();
 
     composerEl.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -333,6 +335,11 @@ export function renderAppHtml(i18n: I18n): string {
       if (event.key === "Escape" && !detailModal.hidden) {
         closeModal();
       }
+    });
+    window.addEventListener("beforeunload", () => {
+      if (!proactiveEventSource) return;
+      proactiveEventSource.close();
+      proactiveEventSource = null;
     });
 
     async function handleLocalCommand(text) {
@@ -424,6 +431,33 @@ export function renderAppHtml(i18n: I18n): string {
         return 200;
       }
       return Math.min(parsed, 5000);
+    }
+
+    function initProactiveStream() {
+      if (typeof EventSource !== "function") {
+        return;
+      }
+      if (proactiveEventSource) {
+        proactiveEventSource.close();
+      }
+
+      const streamUrl = "/api/proactive/stream?sessionId=" + encodeURIComponent(activeSessionId);
+      const source = new EventSource(streamUrl);
+      proactiveEventSource = source;
+
+      source.addEventListener("proactive", (event) => {
+        const payload = parseProactiveEventPayload(event.data);
+        if (!payload || payload.sessionId !== activeSessionId) {
+          return;
+        }
+        const proactiveReply =
+          typeof payload.proactiveReply === "string" ? payload.proactiveReply.trim() : "";
+        if (!proactiveReply) {
+          return;
+        }
+        addBubble("assistant", proactiveReply);
+        void updateDebug();
+      });
     }
 
     async function sendMessage(text) {
@@ -554,6 +588,21 @@ export function renderAppHtml(i18n: I18n): string {
           activeAbortController = null;
         }
         setBusy(false, t("web.status.ready"));
+      }
+    }
+
+    function parseProactiveEventPayload(rawPayload) {
+      if (typeof rawPayload !== "string" || rawPayload.trim().length === 0) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(rawPayload);
+        if (!parsed || typeof parsed !== "object") {
+          return null;
+        }
+        return parsed;
+      } catch {
+        return null;
       }
     }
 
@@ -1039,4 +1088,3 @@ export function renderAppHtml(i18n: I18n): string {
 </body>
 </html>`;
 }
-

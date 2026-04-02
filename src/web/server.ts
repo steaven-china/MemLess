@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { stat } from "node:fs/promises";
 
 import type { AppConfig, DeepPartial } from "../config.js";
-import type { RuntimeOptions } from "../container.js";
+import type { RuntimeOptions, RuntimeProactiveWakeupEvent } from "../container.js";
 import { createRuntime } from "../container.js";
 import type { IDebugTraceRecorder } from "../debug/DebugTraceRecorder.js";
 import { ReadonlyFileService } from "../files/ReadonlyFileService.js";
@@ -44,10 +44,40 @@ interface DebugState {
   lastContextBySession: Map<string, LastContextState>;
 }
 
+type ProactiveSubscriberMap = Map<string, Set<ServerResponse>>;
+
 export async function startWebServer(options: WebServerOptions = {}): Promise<StartedWebServer> {
-  const defaultRuntime = createRuntime(options.runtimeOverrides ?? {}, options.runtimeOptions);
   const fileService = new ReadonlyFileService({ rootPath: process.cwd() });
   const debugState: DebugState = { lastContextBySession: new Map<string, LastContextState>() };
+  const proactiveSubscribersBySession: ProactiveSubscriberMap = new Map();
+  const baseRuntimeOptions = options.runtimeOptions;
+
+  const emitProactiveWakeup = (sessionId: string, event: RuntimeProactiveWakeupEvent): void => {
+    const payload = {
+      sessionId,
+      requestId: createId("req"),
+      proactiveReply: event.text,
+      triggerSource: event.triggerSource,
+      at: event.at
+    };
+    broadcastProactiveEvent(proactiveSubscribersBySession, sessionId, payload);
+  };
+
+  const createRuntimeForSession = (sessionId: string): ReturnType<typeof createRuntime> => {
+    const mergedRuntimeOptions: RuntimeOptions = {
+      ...(baseRuntimeOptions ?? {}),
+      onProactiveWakeup: async (event) => {
+        try {
+          await baseRuntimeOptions?.onProactiveWakeup?.(event);
+        } finally {
+          emitProactiveWakeup(sessionId, event);
+        }
+      }
+    };
+    return createRuntime(options.runtimeOverrides ?? {}, mergedRuntimeOptions);
+  };
+
+  const defaultRuntime = createRuntimeForSession("default");
   const runtimesBySession = new Map<string, ReturnType<typeof createRuntime>>([["default", defaultRuntime]]);
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 8787;
@@ -55,7 +85,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   const resolveRuntimeForSession = (sessionId: string): ReturnType<typeof createRuntime> => {
     const existing = runtimesBySession.get(sessionId);
     if (existing) return existing;
-    const created = createRuntime(options.runtimeOverrides ?? {}, options.runtimeOptions);
+    const created = createRuntimeForSession(sessionId);
     runtimesBySession.set(sessionId, created);
     return created;
   };
@@ -63,7 +93,16 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
   const server = createServer(async (req, res) => {
     const i18n = resolveRequestI18n(req, defaultRuntime.config.component.locale);
     try {
-      await routeRequest(req, res, defaultRuntime, resolveRuntimeForSession, debugState, fileService, i18n);
+      await routeRequest(
+        req,
+        res,
+        defaultRuntime,
+        resolveRuntimeForSession,
+        debugState,
+        fileService,
+        proactiveSubscribersBySession,
+        i18n
+      );
     } catch (error) {
       if (error instanceof HttpError) {
         sendJson(res, error.statusCode, { error: error.message });
@@ -83,6 +122,14 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
     port: address.port,
     url: `http://${host}:${address.port}`,
     close: async () => {
+      for (const subscribers of proactiveSubscribersBySession.values()) {
+        for (const subscriber of subscribers) {
+          if (!subscriber.writableEnded) {
+            subscriber.end();
+          }
+        }
+      }
+      proactiveSubscribersBySession.clear();
       await closeServer(server);
       const closed = new Set<ReturnType<typeof createRuntime>>();
       for (const runtime of runtimesBySession.values()) {
@@ -101,6 +148,7 @@ async function routeRequest(
   resolveRuntimeForSession: (sessionId: string) => ReturnType<typeof createRuntime>,
   debugState: DebugState,
   fileService: ReadonlyFileService,
+  proactiveSubscribersBySession: ProactiveSubscriberMap,
   i18n: I18n
 ): Promise<void> {
   const bodyLimit = resolveBodyLimit(defaultRuntime.config.component.webRequestBodyMaxBytes);
@@ -131,6 +179,13 @@ async function routeRequest(
       debugTraceEnabled: defaultRuntime.config.component.debugTraceEnabled,
       debugTraceMaxEntries: defaultRuntime.config.component.debugTraceMaxEntries
     });
+    return;
+  }
+
+  if (method === "GET" && pathname === "/api/proactive/stream") {
+    const sessionId = normalizeSessionId(url.searchParams.get("sessionId") ?? undefined);
+    resolveRuntimeForSession(sessionId);
+    beginProactiveSseStream(req, res, sessionId, proactiveSubscribersBySession);
     return;
   }
 
@@ -395,6 +450,7 @@ async function buildDebugDatabaseSnapshot(
   };
 
   const storage = await buildStorageSnapshot(runtime.config);
+  const proactive = runtime.memoryManager.getProactiveSignalDiagnostics();
 
   return {
     generatedAt: Date.now(),
@@ -407,6 +463,7 @@ async function buildDebugDatabaseSnapshot(
       traces: traceRecorder.size()
     },
     retention,
+    proactive,
     blocks: blocksByTime
       .map((block, index) => ({
         order: index + 1,
@@ -609,6 +666,63 @@ function sendSseEvent(res: ServerResponse, event: string, payload: unknown): voi
   res.write(`data: ${data}\n\n`);
 }
 
+function beginProactiveSseStream(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessionId: string,
+  subscribersBySession: ProactiveSubscriberMap
+): void {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  sendSseEvent(res, "ready", { sessionId, at: Date.now() });
+
+  const subscribers = subscribersBySession.get(sessionId) ?? new Set<ServerResponse>();
+  subscribers.add(res);
+  subscribersBySession.set(sessionId, subscribers);
+
+  const cleanup = (): void => {
+    const current = subscribersBySession.get(sessionId);
+    if (!current) return;
+    current.delete(res);
+    if (current.size === 0) {
+      subscribersBySession.delete(sessionId);
+    }
+  };
+
+  req.once("aborted", cleanup);
+  req.once("close", cleanup);
+  res.once("close", cleanup);
+  res.once("finish", cleanup);
+}
+
+function broadcastProactiveEvent(
+  subscribersBySession: ProactiveSubscriberMap,
+  sessionId: string,
+  payload: Record<string, unknown>
+): void {
+  const subscribers = subscribersBySession.get(sessionId);
+  if (!subscribers || subscribers.size === 0) return;
+
+  for (const subscriber of [...subscribers]) {
+    if (subscriber.writableEnded || subscriber.destroyed) {
+      subscribers.delete(subscriber);
+      continue;
+    }
+    try {
+      sendSseEvent(subscriber, "proactive", payload);
+    } catch {
+      subscribers.delete(subscriber);
+    }
+  }
+
+  if (subscribers.size === 0) {
+    subscribersBySession.delete(sessionId);
+  }
+}
+
 function listen(server: Server, port: number, host: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: unknown): void => {
@@ -698,5 +812,3 @@ function resolveBodyLimit(rawLimit: number): number {
   if (normalized <= 0) return 256 * 1024;
   return Math.min(4 * 1024 * 1024, Math.max(1024, normalized));
 }
-
-

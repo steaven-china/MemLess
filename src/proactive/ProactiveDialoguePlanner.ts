@@ -65,9 +65,13 @@ export class ProactiveDialoguePlanner {
 
     const isLowEntropyReason =
       signal.reason.startsWith("low_entropy_") || signal.reason.startsWith("relation_");
+    const isTopicShiftReason = signal.reason.startsWith("topic_shift_");
     const lowEntropyPrompt =
       this.config.i18n?.t("proactive.message.low_entropy") ??
       "我可能缺少关键关系信息：涉及哪些实体？它们之间是什么关系（依赖/因果/流程/约束）？";
+    const topicShiftPrompt =
+      this.config.i18n?.t("proactive.message.topic_shift") ??
+      "看起来你切换了话题。要不要先确认一下新目标、约束和期望输出，我再按新方向继续？";
 
     if (signal.mode === "inject") {
       return {
@@ -76,6 +80,8 @@ export class ProactiveDialoguePlanner {
         searchQueries,
         messageSeed: isLowEntropyReason
           ? lowEntropyPrompt
+          : isTopicShiftReason
+            ? topicShiftPrompt
           : (this.config.i18n?.t("proactive.message.suggest", { label }) ??
             `I suggest prioritizing "${label}". Do you want me to give you the smallest next-step checklist now?`),
         reason: signal.reason

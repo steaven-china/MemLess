@@ -273,6 +273,41 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     expect(config.manager.relationConflictDetectionEnabled).toBe(true);
   });
 
+  test("loads topic-shift trigger config from toml file", async () => {
+    const filePath = await makeTempPath();
+    await writeFile(
+      filePath,
+      [
+        "[manager]",
+        "topicShiftTriggerEnabled = true",
+        "topicShiftMinKeywords = 2",
+        "topicShiftMinTokens = 4",
+        "topicShiftQuerySimilaritySoftMax = 0.36",
+        "topicShiftQuerySimilarityHardMax = 0.18",
+        "topicShiftKeywordOverlapSoftMax = 0.31",
+        "topicShiftKeywordOverlapHardMax = 0.11",
+        "topicShiftRetrievalOverlapSoftMax = 0.37",
+        "topicShiftRetrievalOverlapHardMax = 0.19",
+        "topicShiftSoftCooldownSeconds = 120",
+        "topicShiftHardCooldownSeconds = 420"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const config = loadConfig({}, { userTomlPath: filePath });
+    expect(config.manager.topicShiftTriggerEnabled).toBe(true);
+    expect(config.manager.topicShiftMinKeywords).toBe(2);
+    expect(config.manager.topicShiftMinTokens).toBe(4);
+    expect(config.manager.topicShiftQuerySimilaritySoftMax).toBe(0.36);
+    expect(config.manager.topicShiftQuerySimilarityHardMax).toBe(0.18);
+    expect(config.manager.topicShiftKeywordOverlapSoftMax).toBe(0.31);
+    expect(config.manager.topicShiftKeywordOverlapHardMax).toBe(0.11);
+    expect(config.manager.topicShiftRetrievalOverlapSoftMax).toBe(0.37);
+    expect(config.manager.topicShiftRetrievalOverlapHardMax).toBe(0.19);
+    expect(config.manager.topicShiftSoftCooldownSeconds).toBe(120);
+    expect(config.manager.topicShiftHardCooldownSeconds).toBe(420);
+  });
+
   test("loads hybrid and local embed tuning config from toml file", async () => {
     const filePath = await makeTempPath();
     await writeFile(
@@ -283,13 +318,18 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
         "hybridPrescreenMin = 24",
         "hybridPrescreenMax = 180",
         "hybridRerankMultiplier = 4",
+        "hybridRerankHardCap = 12",
+        "hybridHashEarlyStopMinGap = 0.08",
+        "hybridLocalRerankTimeoutMs = 280",
+        "hybridRerankTextMaxChars = 256",
         "hybridLocalCacheMaxEntries = 4096",
         "hybridLocalCacheTtlMs = 120000",
         "",
         "[component]",
         "localEmbedBatchWindowMs = 7",
         "localEmbedMaxBatchSize = 48",
-        "localEmbedQueueMaxPending = 2048"
+        "localEmbedQueueMaxPending = 2048",
+        'localEmbedExecutionProvider = "cuda"'
       ].join("\n"),
       "utf8"
     );
@@ -299,11 +339,16 @@ describe("loadConfig with ~/.mlex/config.toml support", () => {
     expect(config.manager.hybridPrescreenMin).toBe(24);
     expect(config.manager.hybridPrescreenMax).toBe(180);
     expect(config.manager.hybridRerankMultiplier).toBe(4);
+    expect(config.manager.hybridRerankHardCap).toBe(12);
+    expect(config.manager.hybridHashEarlyStopMinGap).toBe(0.08);
+    expect(config.manager.hybridLocalRerankTimeoutMs).toBe(280);
+    expect(config.manager.hybridRerankTextMaxChars).toBe(256);
     expect(config.manager.hybridLocalCacheMaxEntries).toBe(4096);
     expect(config.manager.hybridLocalCacheTtlMs).toBe(120000);
     expect(config.component.localEmbedBatchWindowMs).toBe(7);
     expect(config.component.localEmbedMaxBatchSize).toBe(48);
     expect(config.component.localEmbedQueueMaxPending).toBe(2048);
+    expect(config.component.localEmbedExecutionProvider).toBe("cuda");
   });
 
   test("loads sqlite worker flag from toml file", async () => {
