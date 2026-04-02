@@ -86,10 +86,48 @@ CLI entries:
 | `mlex chat` | Interactive chat (TUI) |
 | `mlex web` | Start Web UI + API |
 | `mlex ask` | One-shot question |
-| `mlex ingest <file>` | Ingest text into memory |
+| `mlex ingest <file>` | Import dataset into memory (`txt/json/jsonl`) |
 | `mlex swarm` | Multi-agent collaboration |
 | `mlex files:list` | Readonly directory listing |
 | `mlex files:read` | Readonly file read |
+
+---
+
+## Data Importer (`mlex ingest`)
+
+`mlex ingest` now imports records directly into memory blocks without going through LLM chat turns.
+
+Supported input formats:
+- `txt` (split by paragraph or line)
+- `json` (array/object)
+- `jsonl` / `ndjson` (one JSON object per line)
+
+### CLI options
+
+- `--format <auto|txt|json|jsonl>`: force format, default `auto` (by extension)
+- `--text-field <name>`: text key for json/jsonl, default `text`
+- `--role-field <name>`: role key for json/jsonl, default `role`
+- `--time-field <name>`: timestamp key for json/jsonl, default `timestamp`
+- `--default-role <system|user|assistant|tool>`: fallback role, default `user`
+- `--text-split <paragraph|line>`: txt split mode, default `paragraph`
+- `--seal-every <n>`: seal block every `n` imported records, default `1`
+- `--max-records <n>`: import only first `n` parsed records
+- `--dry-run`: parse and validate only, do not write memory
+
+### PowerShell examples
+
+```powershell
+# txt (auto detect), split by paragraph
+npx mlex ingest .\data\notes.txt --provider rule-based --storage-backend sqlite
+
+# jsonl with custom field mapping
+npx mlex ingest .\data\chat.jsonl --format jsonl --text-field content --role-field speaker --time-field ts --default-role user
+
+# parse check only (no write)
+npx mlex ingest .\data\dataset.json --format json --dry-run
+```
+
+`mlex ingest` prints import summary: detected format, imported count, skipped count, sealed count, and elapsed milliseconds.
 
 ---
 

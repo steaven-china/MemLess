@@ -18,6 +18,13 @@ import { createI18n } from "../i18n/index.js";
 import type { Locale } from "../i18n/types.js";
 import { MlexTuiApp } from "../tui/MlexTuiApp.js";
 import { startWebServer } from "../web/server.js";
+import {
+  isSupportedEventRole,
+  isSupportedIngestFormat,
+  isSupportedIngestTextSplit,
+  parseIngestContent
+} from "./importer.js";
+import type { EventRole } from "../types.js";
 
 const locale: Locale = process.env.MLEX_LOCALE === "en-US" ? "en-US" : "zh-CN";
 const i18n = createI18n({ locale });
@@ -107,7 +114,16 @@ const optionDescriptions = {
   includeTagsIntro: i18n.t("cli.option.include_tags_intro"),
   tagsIntro: i18n.t("cli.option.tags_intro"),
   tagsToml: i18n.t("cli.option.tags_toml"),
-  tagsVars: i18n.t("cli.option.tags_vars")
+  tagsVars: i18n.t("cli.option.tags_vars"),
+  ingestFormat: i18n.t("cli.option.ingest_format"),
+  ingestTextField: i18n.t("cli.option.ingest_text_field"),
+  ingestRoleField: i18n.t("cli.option.ingest_role_field"),
+  ingestTimeField: i18n.t("cli.option.ingest_time_field"),
+  ingestDefaultRole: i18n.t("cli.option.ingest_default_role"),
+  ingestTextSplit: i18n.t("cli.option.ingest_text_split"),
+  ingestSealEvery: i18n.t("cli.option.ingest_seal_every"),
+  ingestMaxRecords: i18n.t("cli.option.ingest_max_records"),
+  ingestDryRun: i18n.t("cli.option.ingest_dry_run")
 };
 
 const program = new Command();
@@ -317,24 +333,120 @@ program.commands
 program
   .command("ingest")
   .description(i18n.t("cli.ingest.description"))
-  .argument("<file>", i18n.t("cli.ingest.arg_file"));
+  .argument("<file>", i18n.t("cli.ingest.arg_file"))
+  .option("--format <format>", optionDescriptions.ingestFormat, "auto")
+  .option("--text-field <name>", optionDescriptions.ingestTextField, "text")
+  .option("--role-field <name>", optionDescriptions.ingestRoleField, "role")
+  .option("--time-field <name>", optionDescriptions.ingestTimeField, "timestamp")
+  .option("--default-role <role>", optionDescriptions.ingestDefaultRole, "user")
+  .option("--text-split <mode>", optionDescriptions.ingestTextSplit, "paragraph")
+  .option("--seal-every <number>", optionDescriptions.ingestSealEvery, "1")
+  .option("--max-records <number>", optionDescriptions.ingestMaxRecords)
+  .option("--dry-run", optionDescriptions.ingestDryRun, false);
 applyAgentRuntimeOptions(program.commands.at(-1)!);
 program.commands
   .at(-1)!
   .action(async (file: string, options) => {
+    const startedAt = Date.now();
+    const formatInput = (asOptionalString(options.format) ?? "auto").trim().toLowerCase();
+    if (!isSupportedIngestFormat(formatInput)) {
+      throw new Error(i18n.t("cli.ingest.error.invalid_format", { format: formatInput }));
+    }
+
+    const defaultRoleInput = (asOptionalString(options.defaultRole) ?? "user").trim().toLowerCase();
+    if (!isSupportedEventRole(defaultRoleInput)) {
+      throw new Error(i18n.t("cli.ingest.error.invalid_default_role", { role: defaultRoleInput }));
+    }
+
+    const textSplitMode = (asOptionalString(options.textSplit) ?? "paragraph").trim().toLowerCase();
+    if (!isSupportedIngestTextSplit(textSplitMode)) {
+      throw new Error(i18n.t("cli.ingest.error.invalid_text_split", { mode: textSplitMode }));
+    }
+
+    const textField = asOptionalString(options.textField) ?? "text";
+    const roleField = asOptionalString(options.roleField) ?? "role";
+    const timeField = asOptionalString(options.timeField) ?? "timestamp";
+    const sealEvery = Math.max(1, parseOptionalNumber(asOptionalString(options.sealEvery)) ?? 1);
+    const maxRecords = parseOptionalNumber(asOptionalString(options.maxRecords));
+
+    const content = await readFile(file, "utf8");
+    const parsed = parseIngestContent({
+      filePath: file,
+      content,
+      format: formatInput,
+      textField,
+      roleField,
+      timeField,
+      defaultRole: defaultRoleInput as EventRole,
+      textSplitMode
+    });
+
+    let truncatedCount = 0;
+    const records =
+      maxRecords && maxRecords > 0
+        ? (() => {
+            truncatedCount = Math.max(0, parsed.records.length - maxRecords);
+            return parsed.records.slice(0, maxRecords);
+          })()
+        : parsed.records;
+    const skipped = parsed.skipped + truncatedCount;
+    const warningLimit = 10;
+    if (parsed.warnings.length > 0) {
+      output.write(
+        `${i18n.t("cli.ingest.warning_count", {
+          count: parsed.warnings.length,
+          shown: Math.min(warningLimit, parsed.warnings.length)
+        })}\n`
+      );
+      for (const warning of parsed.warnings.slice(0, warningLimit)) {
+        output.write(`${i18n.t("cli.ingest.warning_item", { message: warning })}\n`);
+      }
+    }
+
+    if (Boolean(options.dryRun)) {
+      output.write(
+        `${i18n.t("cli.ingest.dry_run", {
+          format: parsed.format,
+          imported: records.length,
+          skipped,
+          elapsedMs: Date.now() - startedAt
+        })}\n`
+      );
+      return;
+    }
+
     const runtime = createRuntime(buildRuntimeOverrides(options), buildRuntimeOptions(options));
     try {
-      const content = await readFile(file, "utf8");
-      const segments = content
-        .split(/\n{2,}/)
-        .map((line) => line.trim())
-        .filter(Boolean);
+      let imported = 0;
+      let sealed = 0;
+      let pendingInBlock = 0;
 
-      for (const segment of segments) {
-        await runtime.agent.respond(i18n.t("cli.ingest.prompt", { segment }));
+      for (const record of records) {
+        await runtime.memoryManager.addEvent(record);
+        imported += 1;
+        pendingInBlock += 1;
+
+        if (pendingInBlock >= sealEvery) {
+          await runtime.memoryManager.sealCurrentBlock();
+          sealed += 1;
+          pendingInBlock = 0;
+        }
       }
-      await runtime.agent.sealMemory();
-      output.write(`${i18n.t("cli.ingest.done", { count: segments.length })}\n`);
+
+      if (pendingInBlock > 0) {
+        await runtime.memoryManager.sealCurrentBlock();
+        sealed += 1;
+      }
+
+      output.write(
+        `${i18n.t("cli.ingest.done", {
+          format: parsed.format,
+          imported,
+          skipped,
+          sealed,
+          elapsedMs: Date.now() - startedAt
+        })}\n`
+      );
     } finally {
       await runtime.close();
     }
