@@ -16,7 +16,12 @@ If you are building an agent that needs long-lived context (engineering assistan
 - **Pluggable storage**: `memory` / `sqlite` / `lance` / `chroma`
 - **Pluggable providers**: `rule-based` / `openai` / `deepseek-reasoner` / `anthropic-claude` / `google-gemini` / `openrouter` / `azure-openai` / `openai-compatible`
 - **Observable and tunable**: debug trace, retrieval weights, compression policy, prediction policy
-- **Tool calls can be persisted**: `web.search.record`, `web.fetch.record`, `readonly.list`, `readonly.read`
+- **Runtime-aware prompting**: current ISO time and dialogue counters are injected into system context
+- **Web session isolation**: per-tab `sessionId` with session-scoped runtime storage (non-default sessions) + transcript persistence via `sessionStorage`
+- **Web session manager**: built-in popup manager for creating, switching, renaming, and deleting web sessions
+- **Shared + private memory scopes**: each web session uses private blocks/relations, while a cross-session shared scope is also maintained and injected as auxiliary context
+- **Safe shutdown persistence**: runtime close now seals the active in-progress block before flushing async relations
+- **Tool calls can be persisted**: `web.search.record`, `web.fetch.record`, `readonly.list`, `readonly.read`, `agent.proactive.questioning`
 
 ---
 
@@ -85,6 +90,7 @@ CLI entries:
 | --- | --- |
 | `mlex chat` | Interactive chat (TUI) |
 | `mlex web` | Start Web UI + API |
+| `mlex webfetch-local` | Start local webfetch compatibility service |
 | `mlex ask` | One-shot question |
 | `mlex ingest <file>` | Import dataset into memory (`txt/json/jsonl`) |
 | `mlex swarm` | Multi-agent collaboration |
@@ -363,6 +369,49 @@ npx mlex chat --tags-intro "D:\Work Space\MLEX\AgentDocs\TagsIntro.md"
 - `scheduled`: periodically run seed queries and persist results
 - `predictive`: trigger with proactive prediction flows
 
+### Search API compatibility (`generic` / `bocha` / `bing` / `auto`)
+
+`HttpSearchProvider` now supports lightweight compatibility shims for multiple endpoint styles:
+
+- Note: this section is protocol-compatibility reference only. Use your own endpoint and credentials based on your deployment/compliance requirements.
+
+- `generic` (default): `POST` JSON `{ query, limit, count }`, bearer auth
+- `bocha`: `POST` JSON `{ query, count, summary, freshness }`, bearer auth
+- `bing`: `GET` with query `q/count/mkt/freshness`, header `Ocp-Apim-Subscription-Key`
+- `auto`: infer by endpoint (`bochaai` -> `bocha`, `bing.microsoft.com` or `/v7.0/search` -> `bing`, else `generic`)
+
+Config knobs:
+- `component.searchApiFlavor`
+- `component.searchApiFreshness`
+- `component.searchApiSummaryEnabled`
+- `component.searchApiMarket`
+
+### Local webfetch service (built-in)
+
+MLEX includes a local webfetch compatibility server:
+
+```bash
+npx mlex webfetch-local --host 127.0.0.1 --port 3005
+```
+
+`webfetch-local` exposes:
+- `GET /healthz`
+- `POST /fetch` with JSON body `{ "url": "https://..." }`
+
+Then point runtime config to it:
+
+```toml
+[component]
+webFetchEndpoint = "http://127.0.0.1:3005/fetch"
+# webFetchApiKey = "..."   # only if you start webfetch-local with --web-fetch-api-key
+```
+
+Auto-start behavior for `mlex web`:
+- If `manager.searchAugmentMode` is `predictive` or `scheduled`
+- And `component.webFetchEndpoint` is not configured
+- `mlex web` will auto-start a local webfetch server and inject runtime `component.webFetchEndpoint` automatically.
+- Default bind: `127.0.0.1:3005` with fallback to random port when occupied.
+
 ---
 
 ## Topic Shift Proactive Trigger
@@ -587,11 +636,41 @@ The following tool results can be written into memory:
 - `web.fetch.record`
 - `readonly.list`
 - `readonly.read`
+- `agent.proactive.questioning` (LLM-side proactive follow-up on/off control)
+- `workspace.write` (workspace-bounded file write, opt-in)
+- `terminal.run` (workspace shell command execution, opt-in)
+- `mcp.call` (MCP tool invocation, opt-in)
 
 `readonly.read` additionally records:
 - File snapshot semantics (`contentHash`, `versionKey`, `nearDuplicateKey`)
 - File relation edges (`SNAPSHOT_OF_FILE`, `FILE_MENTIONS_BLOCK`)
 - File vectors in a dedicated `file_vectors` table
+
+### Optional Agent Tool Extensions
+
+By default, write/terminal/MCP tools are disabled. Enable them explicitly:
+
+```bash
+export MLEX_TOOL_FILE_WRITE_ENABLED=true
+export MLEX_TOOL_TERMINAL_ENABLED=true
+export MLEX_MCP_ENABLED=true
+export MLEX_MCP_COMMAND="node"
+export MLEX_MCP_ARGS="path/to/your-mcp-server.js"
+```
+
+Related env vars:
+- `MLEX_TOOL_FILE_WRITE_ENABLED`
+- `MLEX_TOOL_FILE_WRITE_MAX_BYTES`
+- `MLEX_TOOL_TERMINAL_ENABLED`
+- `MLEX_TOOL_TERMINAL_TIMEOUT_MS`
+- `MLEX_TOOL_TERMINAL_MAX_OUTPUT_CHARS`
+- `MLEX_MCP_ENABLED`
+- `MLEX_MCP_COMMAND`
+- `MLEX_MCP_ARGS` (comma separated)
+- `MLEX_MCP_WORKDIR`
+- `MLEX_MCP_INIT_TIMEOUT_MS`
+- `MLEX_MCP_TOOL_TIMEOUT_MS`
+- `MLEX_MCP_TOOL_ALLOWLIST` (comma separated)
 
 ---
 
@@ -601,10 +680,94 @@ The following tool results can be written into memory:
 - `GET /api/capabilities`
 - `POST /api/chat`
 - `POST /api/chat/stream` (SSE)
+- `GET /v1/models` (OpenAI-compatible discovery endpoint)
+- `POST /v1/chat/completions` (OpenAI-compatible, supports `stream=true`)
 - `GET /api/proactive/stream` (SSE, timer proactive push by `sessionId`)
 - `POST /api/seal`
 - `GET /api/debug/*` (debug API must be enabled)
 - `GET /api/files/list`, `GET /api/files/read` (file API must be enabled)
+
+OpenClaw/OpenAI-style integration can call MLEX through `/v1/chat/completions`.
+If OpenClaw should own all agent logic (no MLEX native agent layer), enable provider-direct mode:
+- env: `MLEX_OPENAI_COMPAT_BYPASS_AGENT=true`
+- `mlex web` flag: `--openai-compat-bypass-agent true`
+
+Automatic bridge bypass is also enabled when OpenClaw bridge signals are detected in request payload/headers
+(`openclaw.*`, `sidecar/sidebag`, `x-openclaw-bridge`, `x-mlex-bridge-mode`, or `User-Agent` containing `openclaw`).
+
+In bridge bypass mode, MLEX uses raw passthrough for OpenAI-compatible upstreams:
+- preserves OpenAI/OpenClaw fields such as `tools`, `tool_choice`, `tool_calls`, and tool-loop payloads
+- does not write tool events into MLEX memory blocks
+- projects file-query tool calls (for example `readonly.read`) into relation edges (`SNAPSHOT_OF_FILE`, `FILE_MENTIONS_BLOCK` when an active block exists) inside the request session's private relation store
+
+Session routing for compatibility mode:
+- preferred: `session_id` (or `sessionId`)
+- fallback: `metadata.session_id` / `metadata.sessionId`
+- sidecar fallback: `sidecar.session_id` / `sidecar.sessionId`, `sidebag.session_id` / `sidebag.sessionId`
+- nested OpenClaw sidecar fallback: `openclaw.sidecar.*`, `openclaw.sidebag.*`, `metadata.openclaw.sidecar.*`, `metadata.openclaw.sidebag.*`
+- last fallback: `user`
+
+Compatibility response headers:
+- `x-mlex-session-id`
+- `x-mlex-request-id`
+- `x-mlex-context-length` (estimated prompt token count)
+- `x-mlex-context-tokens` (same as `x-mlex-context-length`)
+- `x-mlex-context-chars` (prompt character count)
+
+PowerShell example:
+
+```powershell
+$body = @{
+  model = "mlex-agent"
+  session_id = "demo-openclaw-session-1"
+  stream = $false
+  messages = @(
+    @{ role = "system"; content = "You are a practical assistant." },
+    @{ role = "user"; content = "Summarize my current task in one sentence." }
+  )
+} | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8787/v1/chat/completions" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Universal OpenClaw smoke script (automated onboarding + request validation):
+
+```bash
+npm run smoke:openclaw
+```
+
+Useful overrides:
+
+```bash
+# run 3 iterations against local MLEX
+npm run smoke:openclaw -- --iterations=3 --message="Summarize retrieval status in one sentence."
+
+# use external OpenAI-compatible endpoint (do not start local MLEX)
+npm run smoke:openclaw -- \
+  --start-mlex=false \
+  --base-url="https://your-endpoint.example.com/v1" \
+  --provider-id="custom-openai" \
+  --model-id="your-model" \
+  --api-key="your-api-key"
+```
+
+Main parameters:
+- `--profile` (OpenClaw profile, default `mlex-test`)
+- `--onboard=true|false` (reconfigure profile each run, default `true`)
+- `--session-id` (shared session id for repeated checks)
+- `--iterations` (default `1`)
+- `--start-mlex=true|false` (default `true`)
+- `--mlex-entry` (default `dist/cli/index.js`)
+- `--mlex-host`, `--mlex-port`, `--mlex-provider`
+- `--base-url` (OpenAI-compatible base URL used by OpenClaw)
+- `--provider-id`, `--model-id`, `--api-key`
+- `--openclaw-cmd` (override executable path)
+- `--openai-compat-bypass-agent true|false` (on `mlex web`, bypass MLEX native agent for `/v1/chat/completions`)
+- `--timeout-ms`, `--health-timeout-ms`
+- `--keep-mlex-alive=true|false` (default `false`)
 
 `GET /api/debug/database` now includes structured proactive diagnostics:
 - `proactive.latest` (latest proactive signal snapshot)
