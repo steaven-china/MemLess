@@ -328,7 +328,6 @@ export class BuiltinAgentToolExecutor implements IAgentToolExecutor {
       try {
         run = await runShellCommand(command, this.config.workspaceRoot, timeoutMs);
       } catch (error) {
-        this.terminalRunInFlight = false;
         const result = {
           ok: false,
           content: toErrorMessage(error)

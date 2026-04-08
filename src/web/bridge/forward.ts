@@ -443,22 +443,22 @@ function isBridgeFileReadToolName(name: string | undefined): boolean {
   return normalized.includes("read") && normalized.includes("file");
 }
 
-function collectPathsFromUnknown(value: unknown, output: Set<string>): void {
-  if (!value) return;
+function collectPathsFromUnknown(value: unknown, output: Set<string>, depth = 0): void {
+  if (!value || depth > 10) return;
 
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return;
     const parsed = safeJsonParse<unknown>(trimmed);
     if (parsed) {
-      collectPathsFromUnknown(parsed, output);
+      collectPathsFromUnknown(parsed, output, depth + 1);
     }
     return;
   }
 
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectPathsFromUnknown(entry, output);
+      collectPathsFromUnknown(entry, output, depth + 1);
     }
     return;
   }
@@ -477,7 +477,7 @@ function collectPathsFromUnknown(value: unknown, output: Set<string>): void {
   }
 
   for (const nested of [record.args, record.arguments, record.function, record.content]) {
-    collectPathsFromUnknown(nested, output);
+    collectPathsFromUnknown(nested, output, depth + 1);
   }
 }
 

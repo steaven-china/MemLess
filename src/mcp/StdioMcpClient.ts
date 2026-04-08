@@ -99,11 +99,19 @@ export class StdioMcpClient implements IMcpToolClient {
     if (this.initializePromise) {
       return this.initializePromise;
     }
-    this.initializePromise = this.initialize();
+    const promise = this.initialize();
+    this.initializePromise = promise;
     try {
-      await this.initializePromise;
+      await promise;
+    } catch (error) {
+      if (this.closed) {
+        throw new Error("MCP client is closed");
+      }
+      throw error;
     } finally {
-      this.initializePromise = undefined;
+      if (this.initializePromise === promise) {
+        this.initializePromise = undefined;
+      }
     }
   }
 
@@ -225,30 +233,36 @@ export class StdioMcpClient implements IMcpToolClient {
   }
 
   private drainStdoutBuffer(): void {
-    while (true) {
-      const headerEnd = this.stdoutBuffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
-      const header = this.stdoutBuffer.subarray(0, headerEnd).toString("utf8");
-      const contentLength = parseContentLength(header);
-      if (contentLength === undefined) {
-        throw new Error(`Invalid MCP frame header: ${header}`);
+    try {
+      while (true) {
+        const headerEnd = this.stdoutBuffer.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const header = this.stdoutBuffer.subarray(0, headerEnd).toString("utf8");
+        const contentLength = parseContentLength(header);
+        if (contentLength === undefined) {
+          this.failProcess(new Error(`Invalid MCP frame header: ${header}`));
+          return;
+        }
+        const bodyStart = headerEnd + 4;
+        const bodyEnd = bodyStart + contentLength;
+        if (this.stdoutBuffer.length < bodyEnd) return;
+
+        const body = this.stdoutBuffer.subarray(bodyStart, bodyEnd).toString("utf8");
+        this.stdoutBuffer = this.stdoutBuffer.subarray(bodyEnd);
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.failProcess(new Error(`Failed to parse MCP JSON payload: ${message}`));
+          return;
+        }
+
+        this.handleIncomingMessage(parsed);
       }
-      const bodyStart = headerEnd + 4;
-      const bodyEnd = bodyStart + contentLength;
-      if (this.stdoutBuffer.length < bodyEnd) return;
-
-      const body = this.stdoutBuffer.subarray(bodyStart, bodyEnd).toString("utf8");
-      this.stdoutBuffer = this.stdoutBuffer.subarray(bodyEnd);
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(body);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to parse MCP JSON payload: ${message}`);
-      }
-
-      this.handleIncomingMessage(parsed);
+    } catch (error) {
+      this.failProcess(error);
     }
   }
 

@@ -89,10 +89,12 @@ export async function startLocalWebFetchServer(
 
   return {
     url: `http://${options.host}:${address.port}`,
-    close: async () =>
+    close: async () => {
+      server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
-      })
+      });
+    }
   };
 }
 

@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { open } from "node:fs/promises";
 import { isAbsolute, resolve, relative } from "node:path";
 
 export interface ReadonlyFileServiceConfig {
@@ -82,24 +83,36 @@ export class ReadonlyFileService {
 
   async read(pathInput: string, maxBytes?: number): Promise<ReadFileResult> {
     const resolved = this.resolveWithinRoot(pathInput);
-    const stat = await fs.stat(resolved.absolutePath);
-    if (!stat.isFile()) {
+    const fileStat = await fs.stat(resolved.absolutePath);
+    if (!fileStat.isFile()) {
       throw new Error(`Path is not a file: ${resolved.relativePath}`);
     }
 
-    const content = await fs.readFile(resolved.absolutePath);
+    const totalBytes = fileStat.size;
     const parsedMaxBytes = typeof maxBytes === "number" && Number.isFinite(maxBytes) ? Math.floor(maxBytes) : undefined;
-    const limit = parsedMaxBytes !== undefined ? Math.max(1, parsedMaxBytes) : content.byteLength;
-    const truncated = content.byteLength > limit;
-    const payload = truncated ? content.subarray(0, limit) : content;
+    const limit = parsedMaxBytes !== undefined ? Math.max(1, parsedMaxBytes) : totalBytes;
+    const truncated = totalBytes > limit;
+
+    let payload: Buffer;
+    if (truncated) {
+      const handle = await open(resolved.absolutePath, "r");
+      try {
+        payload = Buffer.alloc(limit);
+        await handle.read(payload, 0, limit, 0);
+      } finally {
+        await handle.close();
+      }
+    } else {
+      payload = await fs.readFile(resolved.absolutePath);
+    }
 
     return {
       path: resolved.relativePath,
       text: payload.toString("utf8"),
       bytes: payload.byteLength,
-      totalBytes: content.byteLength,
+      totalBytes,
       truncated,
-      modifiedAt: stat.mtimeMs
+      modifiedAt: fileStat.mtimeMs
     };
   }
 

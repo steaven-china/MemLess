@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { join, parse } from "node:path";
 
 import type { AppConfig, DeepPartial } from "../config.js";
@@ -186,12 +186,33 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<St
     sharedRuntime
   };
   const runtimesBySession = new Map<string, SessionRuntimeSet>([["default", defaultRuntime]]);
+  const MAX_SESSIONS = 64;
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 8787;
+
+  const evictOldestSession = async (): Promise<void> => {
+    let oldestKey: string | undefined;
+    for (const key of runtimesBySession.keys()) {
+      if (key === "default") continue;
+      oldestKey = key;
+      break;
+    }
+    if (!oldestKey) return;
+    const evicted = runtimesBySession.get(oldestKey);
+    runtimesBySession.delete(oldestKey);
+    if (evicted) {
+      try {
+        await evicted.privateRuntime.close();
+      } catch { /* best effort */ }
+    }
+  };
 
   const resolveRuntimeForSession = (sessionId: string): SessionRuntimeSet => {
     const existing = runtimesBySession.get(sessionId);
     if (existing) return existing;
+    if (runtimesBySession.size >= MAX_SESSIONS) {
+      void evictOldestSession();
+    }
     const created: SessionRuntimeSet = {
       sessionId,
       privateRuntime: createPrivateRuntimeForSession(sessionId),
@@ -1437,8 +1458,15 @@ function normalizeAdminToken(token: string | undefined): string | undefined {
 function requireAdminAuthorization(req: IncomingMessage, adminToken: string | undefined, i18n: I18n): void {
   if (!adminToken) return;
   const provided = extractAdminToken(req);
-  if (provided === adminToken) return;
+  if (provided && safeTokenEqual(provided, adminToken)) return;
   throw new HttpError(401, i18n.t("web.api.error.unauthorized"));
+}
+
+function safeTokenEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.byteLength !== bufB.byteLength) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 function extractAdminToken(req: IncomingMessage): string | undefined {

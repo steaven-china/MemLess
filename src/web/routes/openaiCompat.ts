@@ -369,8 +369,8 @@ export async function handleOpenAiCompatRoute(input: OpenAiCompatRouteContext): 
         request.message,
         (token) => {
           if (signal.aborted || res.writableEnded) return;
-          const content = helpers.normalizeUserMessage(token);
-          if (!content) return;
+          if (typeof token !== "string" || token.length === 0) return;
+          const content = token;
           helpers.sendOpenAiSseData(res, {
             id: completionId,
             object: "chat.completion.chunk",
