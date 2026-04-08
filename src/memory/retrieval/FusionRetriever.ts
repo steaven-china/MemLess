@@ -29,15 +29,21 @@ export class FusionRetriever implements IBlockRetriever {
     const rrfScores = new Map<string, number>();
     const hitMeta = new Map<string, { hit: RetrievalHit; sourceCount: number }>();
 
-    for (const item of this.retrievers) {
-      const hits = await item.retriever.retrieve(input);
+    const allResults = await Promise.all(
+      this.retrievers.map(async (item) => ({
+        weight: item.weight,
+        hits: await item.retriever.retrieve(input)
+      }))
+    );
+
+    for (const { weight, hits } of allResults) {
       for (let rank = 0; rank < hits.length; rank += 1) {
         const hit = hits[rank];
-        const rrf = item.weight / (FusionRetriever.RRF_K + rank + 1);
+        const rrf = weight / (FusionRetriever.RRF_K + rank + 1);
         rrfScores.set(hit.blockId, (rrfScores.get(hit.blockId) ?? 0) + rrf);
         const existing = hitMeta.get(hit.blockId);
         if (!existing) {
-          hitMeta.set(hit.blockId, { hit: { ...hit }, sourceCount: 1 });
+          hitMeta.set(hit.blockId, { hit, sourceCount: 1 });
         } else {
           existing.sourceCount += 1;
           if (!existing.hit.block && hit.block) existing.hit.block = hit.block;

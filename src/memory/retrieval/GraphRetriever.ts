@@ -44,10 +44,13 @@ export class GraphRetriever implements IBlockRetriever {
 
     const maxScore = Math.max(...scoreMap.values(), 0);
     const normalizer = maxScore > 0 ? maxScore : 1;
+    const blockIds = [...scoreMap.keys()].filter(isBlockNodeId);
+    const blocks = await this.blockStore.getMany(blockIds);
+    const blockMap = new Map(blocks.map((b) => [b.id, b]));
     const hits: RetrievalHit[] = [];
     for (const [blockId, rawScore] of scoreMap.entries()) {
       if (!isBlockNodeId(blockId)) continue;
-      const block = await this.blockStore.get(blockId);
+      const block = blockMap.get(blockId);
       if (!block) continue;
       hits.push({
         blockId,
